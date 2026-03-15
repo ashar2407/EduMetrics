@@ -594,7 +594,7 @@ export default function App() {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
 
-    const handleSignup = (e) => {
+    const handleSignup = async (e) => {
       e.preventDefault();
       setError('');
       
@@ -604,21 +604,27 @@ export default function App() {
         return;
       }
 
-      // 1. Get existing users from the browser's memory
-      const existingUsers = JSON.parse(localStorage.getItem('gradelens_users') || '[]');
-      
-      // 2. Check if the username is already taken
-      if (existingUsers.find(u => u.username.toLowerCase() === username.toLowerCase())) {
-        setError('Username already exists. Please choose another or log in.');
-        return;
+      try {
+        // Send data to our new Node.js backend (Note the /register URL!)
+        const response = await fetch('https://edumetrics-api-kro4.onrender.com/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          // Success! The database saved them. Log them in.
+          setUser({ name: data.user.username, role: 'Teacher', id: data.user.id });
+        } else {
+          // Server caught an error (like username already taken)
+          setError(data.error || 'Failed to create account.');
+        }
+      } catch (err) {
+        console.error(err);
+        setError('Could not connect to the database. Is the server running?');
       }
-
-      // 3. Save the new user
-      existingUsers.push({ username, password, role: 'Teacher' });
-      localStorage.setItem('gradelens_users', JSON.stringify(existingUsers));
-
-      // 4. Log them in
-      setUser({ name: username, role: 'Teacher' });
     };
 
     return (
@@ -668,23 +674,30 @@ export default function App() {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
 
-    const handleLogin = (e) => {
+    const handleLogin = async (e) => {
       e.preventDefault();
       setError('');
 
-      // 1. Get saved users
-      const existingUsers = JSON.parse(localStorage.getItem('gradelens_users') || '[]');
-      
-      // 2. Look for a match with both username and password
-      const foundUser = existingUsers.find(
-        u => u.username.toLowerCase() === username.toLowerCase() && u.password === password
-      );
+      try {
+        // Check credentials against the AWS database (Note the /login URL!)
+        const response = await fetch('https://edumetrics-api-kro4.onrender.com/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
 
-      // 3. Log in or show error
-      if (foundUser) {
-        setUser({ name: foundUser.username, role: foundUser.role });
-      } else {
-        setError('Invalid username or password. Have you created an account?');
+        const data = await response.json();
+
+        if (response.ok) {
+          // Success! Credentials match.
+          setUser({ name: data.user.username, role: 'Teacher', id: data.user.id });
+        } else {
+          // Wrong password or username
+          setError(data.error || 'Invalid login details.');
+        }
+      } catch (err) {
+        console.error(err);
+        setError('Could not connect to the database. Is the server running?');
       }
     };
 
