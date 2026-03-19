@@ -2,6 +2,12 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
 import { Users, TrendingUp, TrendingDown, AlertTriangle, BookOpen, ChevronRight, ArrowLeft, Activity, Target, UploadCloud, FileSpreadsheet, Download, Printer, Lightbulb, ShieldAlert, Search, LogOut, Lock, BarChart3, Brain, FileText, CheckCircle2, Wand2, Sparkles } from 'lucide-react';
 
+// ─── PREMIUM CONFIG ────────────────────────────────────────────────────────────
+// Replace with your real Stripe Payment Link URL from dashboard.stripe.com
+const STRIPE_PAYMENT_LINK = 'https://buy.stripe.com/YOUR_PAYMENT_LINK_ID';
+const FREE_CLASS_LIMIT = 2;
+// ───────────────────────────────────────────────────────────────────────────────
+
 // --- STATISTICAL ENGINE ---
 const calcStats = (arr) => {
   if (!arr.length) return { mean: 0, median: 0, stdDev: 0 };
@@ -77,6 +83,16 @@ export default function App() {
   const [scores, setScores] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [showPaywall, setShowPaywall] = useState(null); // null | 'pdf' | 'ai' | 'classes'
+  const [showPricingPage, setShowPricingPage] = useState(false);
+
+  // ── Premium status: stored per-user in localStorage after Stripe confirms ──
+  const isPremium = user ? (localStorage.getItem(`gradelens_premium_${user.name}`) === 'true') : false;
+
+  const requirePremium = (feature, action) => {
+    if (isPremium) { action(); return; }
+    setShowPaywall(feature);
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -529,6 +545,190 @@ export default function App() {
 
   // --- COMPONENTS ---
 
+  // ── PAYWALL MODAL ─────────────────────────────────────────────────────────────
+  const paywallCopy = {
+    pdf:     { icon: '📄', title: 'PDF Reports are Premium',      desc: 'Generate beautiful, parent-ready PDF progress reports for every student with one click.' },
+    ai:      { icon: '🧠', title: 'AI Insights are Premium',      desc: 'Unlock algorithmic class insights, trend detection, and automated risk commentary.' },
+    classes: { icon: '🏫', title: 'Unlimited Classes are Premium', desc: `Free accounts are limited to ${FREE_CLASS_LIMIT} classrooms. Go Premium to import as many subjects as you need.` },
+  };
+
+  const PaywallModal = () => {
+    if (!showPaywall) return null;
+    const copy = paywallCopy[showPaywall] || paywallCopy.ai;
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" onClick={() => setShowPaywall(null)}>
+        <div className="bg-white rounded-3xl shadow-2xl border border-gray-100 max-w-md w-full overflow-hidden" onClick={e => e.stopPropagation()}>
+          {/* Gradient header */}
+          <div className="bg-gradient-to-br from-amber-400 via-orange-400 to-rose-500 p-8 text-center relative overflow-hidden">
+            <div className="absolute inset-0 opacity-20" style={{backgroundImage:'radial-gradient(circle at 20% 50%, white 1px, transparent 1px), radial-gradient(circle at 80% 20%, white 1px, transparent 1px)', backgroundSize:'30px 30px'}} />
+            <div className="relative">
+              <div className="text-5xl mb-3">{copy.icon}</div>
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/20 rounded-full text-white text-xs font-black uppercase tracking-widest mb-3">
+                ✦ Grade Lens Premium
+              </div>
+              <h2 className="text-2xl font-black text-white leading-tight">{copy.title}</h2>
+            </div>
+          </div>
+          {/* Body */}
+          <div className="p-8">
+            <p className="text-gray-600 font-medium text-center leading-relaxed mb-6">{copy.desc}</p>
+            <div className="space-y-2.5 mb-8">
+              {[
+                'Unlimited classes & student rosters',
+                'AI-powered class & student insights',
+                'One-click PDF report generation',
+                'Priority support from our team',
+              ].map(f => (
+                <div key={f} className="flex items-center gap-3 text-sm font-medium text-gray-700">
+                  <div className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                    <svg className="w-3 h-3 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                  </div>
+                  {f}
+                </div>
+              ))}
+            </div>
+            <a href={STRIPE_PAYMENT_LINK} target="_blank" rel="noreferrer"
+              className="block w-full text-center bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-black py-4 rounded-2xl shadow-lg shadow-orange-200 transition-all text-sm uppercase tracking-widest mb-3">
+              Upgrade to Premium — $9.99/mo
+            </a>
+            <button onClick={() => { setShowPaywall(null); setShowPricingPage(true); }}
+              className="block w-full text-center text-gray-400 hover:text-gray-700 font-bold text-sm py-2 transition-colors">
+              See full plan comparison →
+            </button>
+            <button onClick={() => setShowPaywall(null)} className="absolute top-4 right-4 text-white/70 hover:text-white text-xl font-bold leading-none">✕</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ── PRICING PAGE ──────────────────────────────────────────────────────────────
+  const PricingPage = () => (
+    <div className="min-h-screen bg-slate-50">
+      {/* Nav */}
+      <header className="bg-white border-b border-gray-200 py-4 px-8 flex justify-between items-center">
+        <div className="flex items-center text-blue-600">
+          <Activity className="h-8 w-8 mr-3" strokeWidth={3} />
+          <span className="text-2xl font-black tracking-tight uppercase italic">Grade<span className="text-gray-400 font-light not-italic">Lens</span></span>
+        </div>
+        <button onClick={() => setShowPricingPage(false)} className="text-gray-500 hover:text-gray-900 font-bold text-sm uppercase tracking-widest flex items-center gap-2">
+          <ArrowLeft size={16}/> Back
+        </button>
+      </header>
+
+      <main className="max-w-5xl mx-auto px-6 py-20">
+        {/* Hero */}
+        <div className="text-center mb-16">
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-amber-50 text-amber-700 text-sm font-black mb-6 border border-amber-200 uppercase tracking-widest">
+            ✦ Simple, Transparent Pricing
+          </div>
+          <h1 className="text-5xl font-black text-gray-900 tracking-tight mb-4">Choose your plan</h1>
+          <p className="text-xl text-gray-500 font-medium max-w-xl mx-auto">Start free. Upgrade when you're ready to unlock the full power of Grade Lens.</p>
+        </div>
+
+        {/* Plans */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-3xl mx-auto">
+          {/* Free */}
+          <div className="bg-white rounded-3xl border border-gray-200 p-8 shadow-sm">
+            <div className="mb-6">
+              <p className="text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Free Forever</p>
+              <div className="text-5xl font-black text-gray-900">$0</div>
+              <p className="text-gray-500 font-medium mt-1">No credit card needed</p>
+            </div>
+            <div className="space-y-3 mb-8">
+              {[
+                [`Up to ${FREE_CLASS_LIMIT} classrooms`, true],
+                ['Basic student roster & scores', true],
+                ['Performance trend charts', true],
+                ['CSV data export', true],
+                ['AI-powered class insights', false],
+                ['PDF report generation', false],
+                ['Unlimited classrooms', false],
+                ['Priority support', false],
+              ].map(([label, included]) => (
+                <div key={label} className="flex items-center gap-3 text-sm font-medium">
+                  <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${included ? 'bg-emerald-100' : 'bg-gray-100'}`}>
+                    {included
+                      ? <svg className="w-3 h-3 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                      : <svg className="w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                    }
+                  </div>
+                  <span className={included ? 'text-gray-800' : 'text-gray-400'}>{label}</span>
+                </div>
+              ))}
+            </div>
+            <div className="w-full text-center bg-gray-100 text-gray-500 font-black py-3.5 rounded-2xl text-sm uppercase tracking-widest">
+              {isPremium ? 'Your Previous Plan' : 'Current Plan'}
+            </div>
+          </div>
+
+          {/* Premium */}
+          <div className="bg-gradient-to-br from-gray-900 to-slate-800 rounded-3xl p-8 shadow-2xl shadow-gray-900/20 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-amber-400/10 rounded-full -translate-y-32 translate-x-32" />
+            <div className="absolute bottom-0 left-0 w-48 h-48 bg-blue-400/10 rounded-full translate-y-24 -translate-x-24" />
+            <div className="relative">
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-widest text-amber-400 mb-2">✦ Premium</p>
+                  <div className="text-5xl font-black text-white">$9.99</div>
+                  <p className="text-gray-400 font-medium mt-1">per month</p>
+                </div>
+                <div className="bg-amber-400/20 border border-amber-400/30 text-amber-300 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full">
+                  Most Popular
+                </div>
+              </div>
+              <div className="space-y-3 mb-8">
+                {[
+                  'Everything in Free',
+                  'Unlimited classrooms',
+                  'AI-powered class insights',
+                  'PDF report generation',
+                  'Priority support',
+                  'Early access to new features',
+                ].map(label => (
+                  <div key={label} className="flex items-center gap-3 text-sm font-medium text-gray-200">
+                    <div className="w-5 h-5 rounded-full bg-amber-400/20 flex items-center justify-center flex-shrink-0">
+                      <svg className="w-3 h-3 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                    </div>
+                    {label}
+                  </div>
+                ))}
+              </div>
+              {isPremium ? (
+                <div className="w-full text-center bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 font-black py-3.5 rounded-2xl text-sm uppercase tracking-widest">
+                  ✓ Active Plan
+                </div>
+              ) : (
+                <a href={STRIPE_PAYMENT_LINK} target="_blank" rel="noreferrer"
+                  className="block w-full text-center bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-500 hover:to-orange-600 text-white font-black py-4 rounded-2xl shadow-lg shadow-amber-900/30 transition-all text-sm uppercase tracking-widest">
+                  Upgrade Now →
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* FAQ */}
+        <div className="mt-20 max-w-2xl mx-auto">
+          <h2 className="text-2xl font-black text-gray-900 text-center mb-8">Frequently Asked Questions</h2>
+          <div className="space-y-4">
+            {[
+              ['Can I cancel any time?', 'Yes — cancel from your Stripe billing portal with one click. No questions asked.'],
+              ['Is my data safe?', 'All data is stored securely. Your student records never leave your account.'],
+              ['What happens when I upgrade?', 'After payment, your account is instantly upgraded. Refresh the page if needed.'],
+              ['Do you offer school-wide discounts?', 'Yes! Email us for district and school pricing.'],
+            ].map(([q, a]) => (
+              <div key={q} className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
+                <p className="font-black text-gray-900 mb-2">{q}</p>
+                <p className="text-gray-500 font-medium text-sm leading-relaxed">{a}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+
   const LandingPage = () => (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <header className="bg-white border-b border-gray-200 py-4 px-8 flex justify-between items-center">
@@ -537,6 +737,7 @@ export default function App() {
           <span className="text-2xl font-black tracking-tight uppercase italic">Grade<span className="text-gray-400 font-light not-italic">Lens</span></span>
         </div>
         <div className="space-x-4">
+          <button onClick={() => setShowPricingPage(true)} className="text-gray-600 font-bold hover:text-blue-600 transition-colors">Pricing</button>
           <button onClick={() => setAuthView('login')} className="text-gray-600 font-bold hover:text-blue-600 transition-colors">Log In</button>
           <button onClick={() => setAuthView('signup')} className="text-gray-600 font-bold hover:text-blue-600 transition-colors">Create Account</button>
           <button onClick={triggerDemoMode} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-bold shadow-sm transition-all shadow-blue-200">Try Interactive Demo</button>
@@ -756,6 +957,34 @@ export default function App() {
           {isLoading && <span className="text-blue-600 font-bold animate-pulse flex items-center"><Activity className="mr-2 h-4 w-4 animate-spin"/> Processing Data...</span>}
         </div>
 
+        {/* ── FREE TIER UPSELL BANNER ── */}
+        {!isPremium && (
+          <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-5 flex items-center justify-between gap-4 flex-wrap shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="text-2xl">✦</div>
+              <div>
+                <p className="font-black text-amber-900 text-sm">You're on the Free Plan</p>
+                <p className="text-amber-700 text-xs font-medium mt-0.5">Upgrade to unlock AI insights, PDF reports, and unlimited classrooms.</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <button onClick={() => setShowPricingPage(true)} className="text-amber-700 font-black text-xs uppercase tracking-widest hover:text-amber-900 transition-colors">
+                See plans →
+              </button>
+              <a href={STRIPE_PAYMENT_LINK} target="_blank" rel="noreferrer"
+                className="bg-gradient-to-r from-amber-500 to-orange-500 text-white font-black px-5 py-2.5 rounded-xl text-xs uppercase tracking-widest shadow-sm hover:from-amber-600 hover:to-orange-600 transition-all whitespace-nowrap">
+                Upgrade — $9.99/mo
+              </a>
+            </div>
+          </div>
+        )}
+        {isPremium && (
+          <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl p-4 flex items-center gap-3 shadow-sm">
+            <div className="text-xl">✦</div>
+            <p className="font-black text-emerald-800 text-sm">Premium Plan Active — All features unlocked.</p>
+          </div>
+        )}
+
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-5 gap-4">
             <h2 className="text-lg font-bold text-gray-800 flex items-center">
@@ -820,10 +1049,24 @@ export default function App() {
               <p className="text-gray-500 font-medium">Upload any Excel or CSV grading sheet above to generate predictive analytics.</p>
             </div>
           ) : filteredClasses.length > 0 ? (
-            filteredClasses.map(cls => {
+            filteredClasses.map((cls, idx) => {
+              const isLocked = !isPremium && idx >= FREE_CLASS_LIMIT;
               const classStudentCount = students.filter(s => s.classId === cls.id).length;
               return (
-                <div key={cls.id} className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 hover:shadow-lg hover:-translate-y-1 transition-all cursor-pointer group" onClick={() => navigateTo('class', cls.id)}>
+                <div key={cls.id}
+                  className={`bg-white p-8 rounded-3xl shadow-sm border transition-all cursor-pointer group relative overflow-hidden
+                    ${isLocked ? 'border-gray-200 opacity-70 hover:shadow-md' : 'border-gray-100 hover:shadow-lg hover:-translate-y-1'}`}
+                  onClick={() => isLocked ? setShowPaywall('classes') : navigateTo('class', cls.id)}>
+                  {isLocked && (
+                    <div className="absolute inset-0 bg-white/70 backdrop-blur-[2px] flex flex-col items-center justify-center z-10 rounded-3xl">
+                      <div className="text-3xl mb-2">🔒</div>
+                      <p className="font-black text-gray-700 text-sm mb-1">Premium Only</p>
+                      <button onClick={e => { e.stopPropagation(); setShowPaywall('classes'); }}
+                        className="text-xs font-black text-amber-600 uppercase tracking-widest hover:text-amber-800 transition-colors">
+                        Upgrade to unlock →
+                      </button>
+                    </div>
+                  )}
                   <div className="flex justify-between items-start mb-6">
                     <h2 className="text-2xl font-black text-gray-800 leading-tight">{cls.name}</h2>
                     <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl group-hover:bg-blue-600 group-hover:text-white transition-colors">
@@ -867,8 +1110,8 @@ export default function App() {
             <button onClick={() => navigateTo('home')} className="flex items-center text-gray-500 hover:text-gray-900 font-bold text-sm transition-colors uppercase tracking-widest">
               <ArrowLeft className="h-4 w-4 mr-2" /> Return to Dashboard
             </button>
-            <button onClick={() => downloadPDF(`Class_Report_${activeClass?.name.replace(/\s+/g, '_')}`)} className="flex items-center gap-2 px-5 py-2.5 bg-blue-50 text-blue-600 rounded-xl font-bold hover:bg-blue-100 transition-colors text-sm uppercase tracking-wide">
-              <Printer size={16} /> Download Class Report (PDF)
+            <button onClick={() => requirePremium('pdf', () => downloadPDF(`Class_Report_${activeClass?.name.replace(/\s+/g, '_')}`))} className="flex items-center gap-2 px-5 py-2.5 bg-blue-50 text-blue-600 rounded-xl font-bold hover:bg-blue-100 transition-colors text-sm uppercase tracking-wide">
+              <Printer size={16} /> {isPremium ? 'Download Class Report (PDF)' : '🔒 Download PDF (Premium)'}
             </button>
           </div>
         )}
@@ -908,6 +1151,7 @@ export default function App() {
         )}
 
         {classData.autoInsights.length > 0 && (
+          isPremium ? (
           <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 p-6 rounded-3xl shadow-sm mb-8">
             <div className="flex items-center text-blue-800 font-black uppercase tracking-widest text-xs mb-4">
               <Lightbulb className="mr-2 h-4 w-4 text-amber-500" /> Automated Algorithmic Insights
@@ -921,6 +1165,29 @@ export default function App() {
               ))}
             </ul>
           </div>
+          ) : (
+          <div className="relative bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 p-6 rounded-3xl shadow-sm mb-8 overflow-hidden">
+            <div className="absolute inset-0 backdrop-blur-[3px] bg-white/60 flex flex-col items-center justify-center z-10 rounded-3xl">
+              <div className="text-3xl mb-2">🔒</div>
+              <p className="font-black text-gray-800 text-sm mb-1">AI Insights — Premium Feature</p>
+              <button onClick={() => setShowPaywall('ai')} className="text-xs font-black text-amber-600 uppercase tracking-widest hover:text-amber-800 transition-colors">
+                Upgrade to unlock →
+              </button>
+            </div>
+            {/* Blurred preview */}
+            <div className="flex items-center text-blue-800 font-black uppercase tracking-widest text-xs mb-4">
+              <Lightbulb className="mr-2 h-4 w-4 text-amber-500" /> Automated Algorithmic Insights
+            </div>
+            <ul className="space-y-3 blur-sm">
+              {classData.autoInsights.map((insight, idx) => (
+                <li key={idx} className="text-sm text-slate-700 font-medium flex items-start bg-white/80 p-3.5 rounded-xl border border-blue-100/50 shadow-sm">
+                  <CheckCircle2 className="w-5 h-5 text-blue-500 mr-3 flex-shrink-0" />
+                  <span className="leading-relaxed">{insight}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          )
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 w-full">
@@ -1076,8 +1343,8 @@ export default function App() {
             <button onClick={() => navigateTo('class', student.classId)} className="flex items-center text-gray-400 hover:text-gray-900 font-black text-xs uppercase tracking-widest transition-colors">
               <ArrowLeft className="h-4 w-4 mr-1.5" /> Roster
             </button>
-            <button onClick={() => downloadPDF(`Student_Report_${student.name.replace(/\s+/g, '_')}`)} className="flex items-center gap-2 px-6 py-2.5 bg-blue-50 text-blue-600 rounded-xl font-black uppercase tracking-widest hover:bg-blue-100 transition-colors text-xs shadow-sm">
-              <Printer size={16} /> Export Profile PDF
+            <button onClick={() => requirePremium('pdf', () => downloadPDF(`Student_Report_${student.name.replace(/\s+/g, '_')}`))} className="flex items-center gap-2 px-6 py-2.5 bg-blue-50 text-blue-600 rounded-xl font-black uppercase tracking-widest hover:bg-blue-100 transition-colors text-xs shadow-sm">
+              <Printer size={16} /> {isPremium ? 'Export Profile PDF' : '🔒 Export PDF (Premium)'}
             </button>
           </div>
         )}
@@ -1238,10 +1505,13 @@ export default function App() {
 
   // --- TOP LEVEL RENDER LOGIC ---
   if (!user) {
+    if (showPricingPage) return <><PricingPage /><PaywallModal /></>;
     if (authView === 'landing') return <LandingPage />;
     if (authView === 'signup') return <SignupPage />;
     if (authView === 'login') return <LoginPage />;
   }
+
+  if (showPricingPage) return <><PricingPage /><PaywallModal /></>;
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans p-6 print:p-0 relative">
@@ -1253,6 +1523,17 @@ export default function App() {
               <span className="text-3xl font-black tracking-tight uppercase italic">Grade<span className="text-gray-400 font-light not-italic">Lens</span></span>
             </div>
             <div className="flex items-center space-x-6">
+              {!isPremium && (
+                <button onClick={() => setShowPricingPage(true)}
+                  className="hidden md:flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 text-white font-black text-xs uppercase tracking-widest shadow-sm hover:from-amber-500 hover:to-orange-600 transition-all">
+                  ✦ Upgrade
+                </button>
+              )}
+              {isPremium && (
+                <div className="hidden md:flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 font-black text-xs uppercase tracking-widest">
+                  ✦ Premium
+                </div>
+              )}
               <div className="text-right hidden md:block">
                 <p className="text-sm font-bold text-gray-900 leading-tight">{user.name}</p>
                 <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">{user.role}</p>
@@ -1268,6 +1549,7 @@ export default function App() {
         )}
         
         <main>
+          <PaywallModal />
           {showLogoutConfirm && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
               <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl border border-gray-100 text-center">
