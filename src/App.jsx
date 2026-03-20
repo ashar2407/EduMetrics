@@ -92,6 +92,7 @@ export default function App() {
   const [showPaywall, setShowPaywall] = useState(null); // null | 'pdf' | 'ai' | 'classes'
   const [showPricingPage, setShowPricingPage] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showEmailModal, setShowEmailModal] = useState(false);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('gradelens_dark') === 'true');
 
   // Apply dark mode class to root whenever it changes
@@ -612,6 +613,7 @@ export default function App() {
     const [notifStatus, setNotifStatus] = useState('');
 
     const sendAtRiskNotifications = async () => {
+      if (!user.email) { setShowEmailModal(true); return; }
       setNotifStatus('sending');
       try {
         const res = await fetch('https://edumetrics-api-kro4.onrender.com/api/notify/at-risk', {
@@ -655,33 +657,85 @@ export default function App() {
         <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-8">
           <h2 className="font-black text-gray-900 text-lg mb-1">At-Risk Notifications</h2>
           <p className="text-gray-400 text-sm font-medium mb-6">Send an email summary of all high-risk students across your classrooms.</p>
-          {user.email ? (
-            <div className="space-y-4">
-              <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 flex items-center gap-3">
-                <span className="text-blue-500 text-xl">✉</span>
-                <div>
-                  <p className="text-xs font-black text-blue-700 uppercase tracking-widest">Notifications sent to</p>
-                  <p className="font-black text-blue-900 text-sm mt-0.5">{user.email}</p>
+          {(() => {
+            const [emailInput, setEmailInput] = React.useState('');
+            const [emailSaveStatus, setEmailSaveStatus] = React.useState('');
+            const [editing, setEditing] = React.useState(false);
+
+            const saveEmail = async () => {
+              if (!emailInput || !/^[^@]+@[^@]+\.[^@]+$/.test(emailInput)) {
+                setEmailSaveStatus('invalid');
+                return;
+              }
+              setEmailSaveStatus('saving');
+              try {
+                const res = await fetch('https://edumetrics-api-kro4.onrender.com/api/user/email', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ userId: user.id, email: emailInput })
+                });
+                if (res.ok) {
+                  setUser(prev => ({ ...prev, email: emailInput }));
+                  setEmailSaveStatus('saved');
+                  setEditing(false);
+                  setTimeout(() => setEmailSaveStatus(''), 2500);
+                } else { setEmailSaveStatus('error'); }
+              } catch { setEmailSaveStatus('error'); }
+            };
+
+            return user.email && !editing ? (
+              <div className="space-y-4">
+                <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-blue-500 text-xl">✉</span>
+                    <div>
+                      <p className="text-xs font-black text-blue-700 uppercase tracking-widest">Notifications sent to</p>
+                      <p className="font-black text-blue-900 text-sm mt-0.5">{user.email}</p>
+                    </div>
+                  </div>
+                  <button onClick={() => { setEditing(true); setEmailInput(user.email); }}
+                    className="text-xs font-black text-blue-500 hover:text-blue-700 uppercase tracking-widest transition-colors">
+                    Change
+                  </button>
+                </div>
+                <button onClick={sendAtRiskNotifications} disabled={notifStatus === 'sending'}
+                  className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-black py-3.5 rounded-2xl text-sm uppercase tracking-widest transition-all shadow-sm">
+                  {notifStatus === 'sending' ? 'Sending...' :
+                   notifStatus.startsWith('sent:') ? `✓ Sent to ${notifStatus.split(':')[1]} students` :
+                   notifStatus === 'error' ? '✕ Failed — try again' : 'Send At-Risk Report Now'}
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {!user.email && (
+                  <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 flex items-start gap-3 mb-4">
+                    <span className="text-amber-500 text-lg mt-0.5">⚠</span>
+                    <p className="text-amber-700 text-xs font-medium leading-relaxed">
+                      No email on file. Add one below to enable at-risk notifications.
+                    </p>
+                  </div>
+                )}
+                <input type="email" value={emailInput} onChange={e => setEmailInput(e.target.value)}
+                  placeholder="you@school.edu"
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 font-medium text-sm transition-all" />
+                {emailSaveStatus === 'invalid' && <p className="text-red-500 text-xs font-bold">Please enter a valid email address.</p>}
+                {emailSaveStatus === 'error' && <p className="text-red-500 text-xs font-bold">Failed to save — try again.</p>}
+                {emailSaveStatus === 'saved' && <p className="text-emerald-500 text-xs font-bold">✓ Email saved!</p>}
+                <div className="flex gap-3">
+                  <button onClick={saveEmail} disabled={emailSaveStatus === 'saving'}
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-black py-3 rounded-xl text-xs uppercase tracking-widest transition-all">
+                    {emailSaveStatus === 'saving' ? 'Saving...' : 'Save Email'}
+                  </button>
+                  {editing && (
+                    <button onClick={() => { setEditing(false); setEmailSaveStatus(''); }}
+                      className="px-5 bg-gray-100 hover:bg-gray-200 text-gray-600 font-black py-3 rounded-xl text-xs uppercase tracking-widest transition-all">
+                      Cancel
+                    </button>
+                  )}
                 </div>
               </div>
-              <button
-                onClick={sendAtRiskNotifications}
-                disabled={notifStatus === 'sending'}
-                className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-black py-3.5 rounded-2xl text-sm uppercase tracking-widest transition-all shadow-sm"
-              >
-                {notifStatus === 'sending' ? 'Sending...' :
-                 notifStatus.startsWith('sent:') ? `✓ Sent to ${notifStatus.split(':')[1]} students` :
-                 notifStatus === 'error' ? '✕ Failed — try again' :
-                 'Send At-Risk Report Now'}
-              </button>
-            </div>
-          ) : (
-            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 text-center">
-              <p className="text-2xl mb-2">✉</p>
-              <p className="font-black text-amber-900 text-sm mb-1">No email address on file</p>
-              <p className="text-amber-700 text-xs font-medium">Email notifications require an email address. This can only be added at account creation.</p>
-            </div>
-          )}
+            );
+          })()}
         </div>
 
         {/* Account Info */}
@@ -702,6 +756,75 @@ export default function App() {
               <span className="text-gray-400 font-black text-xs uppercase tracking-widest">Email</span>
               <span className="font-black text-gray-800 text-sm">{user.email || 'Not set'}</span>
             </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ── EMAIL MODAL ───────────────────────────────────────────────────────────────
+  const EmailModal = () => {
+    const [emailInput, setEmailInput] = React.useState('');
+    const [status, setStatus] = React.useState(''); // '' | 'saving' | 'saved' | 'error' | 'invalid'
+
+    if (!showEmailModal) return null;
+
+    const save = async () => {
+      if (!emailInput || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(emailInput)) {
+        setStatus('invalid'); return;
+      }
+      setStatus('saving');
+      try {
+        const res = await fetch('https://edumetrics-api-kro4.onrender.com/api/user/email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: user.id, email: emailInput })
+        });
+        if (res.ok) {
+          setUser(prev => ({ ...prev, email: emailInput }));
+          setStatus('saved');
+          setTimeout(() => setShowEmailModal(false), 1200);
+        } else { setStatus('error'); }
+      } catch { setStatus('error'); }
+    };
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" onClick={() => setShowEmailModal(false)}>
+        <div className="bg-white rounded-3xl shadow-2xl border border-gray-100 max-w-md w-full overflow-hidden" onClick={e => e.stopPropagation()}>
+          {/* Header */}
+          <div className="bg-gradient-to-br from-blue-500 to-indigo-600 p-7 text-center relative overflow-hidden">
+            <div className="absolute inset-0 opacity-10" style={{backgroundImage:'radial-gradient(circle, white 1px, transparent 1px)', backgroundSize:'20px 20px'}} />
+            <div className="relative">
+              <div className="text-4xl mb-2">✉</div>
+              <h2 className="text-xl font-black text-white">Add Your Email</h2>
+              <p className="text-blue-100 text-xs font-medium mt-1">Required for at-risk notifications</p>
+            </div>
+          </div>
+          {/* Body */}
+          <div className="p-7">
+            <p className="text-gray-500 font-medium text-sm leading-relaxed mb-5">
+              To use email notifications, add your email address below. You can update this any time from <strong>Settings</strong>.
+            </p>
+            <input
+              type="email"
+              value={emailInput}
+              onChange={e => setEmailInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && save()}
+              placeholder="you@school.edu"
+              className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 font-medium text-sm mb-3 transition-all"
+              autoFocus
+            />
+            {status === 'invalid' && <p className="text-red-500 text-xs font-bold mb-3">Please enter a valid email address.</p>}
+            {status === 'error'   && <p className="text-red-500 text-xs font-bold mb-3">Failed to save — try again.</p>}
+            {status === 'saved'   && <p className="text-emerald-500 text-xs font-bold mb-3">✓ Email saved! Closing...</p>}
+            <button onClick={save} disabled={status === 'saving' || status === 'saved'}
+              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-black py-3.5 rounded-xl text-sm uppercase tracking-widest transition-all shadow-sm mb-3">
+              {status === 'saving' ? 'Saving...' : 'Save Email'}
+            </button>
+            <button onClick={() => setShowEmailModal(false)}
+              className="w-full text-gray-400 hover:text-gray-600 font-bold text-sm py-2 transition-colors">
+              Maybe later
+            </button>
           </div>
         </div>
       </div>
@@ -1185,7 +1308,7 @@ export default function App() {
               <div className="mt-2.5 bg-blue-50 border border-blue-100 rounded-xl p-3 flex items-start gap-2">
                 <span className="text-blue-500 text-base mt-0.5">✉</span>
                 <p className="text-[11px] text-blue-700 font-medium leading-relaxed">
-                  Adding your email unlocks <strong>at-risk student email notifications</strong> — get alerted when a student's performance drops significantly.
+                  Adding your email unlocks <strong>at-risk student email notifications</strong>. You can also add or update this later in <strong>Settings</strong>.
                 </p>
               </div>
             </div>
@@ -2214,6 +2337,7 @@ export default function App() {
         <main>
           <TourOverlay />
           <PaywallModal />
+          <EmailModal />
           {showLogoutConfirm && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
               <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl border border-gray-100 text-center">
