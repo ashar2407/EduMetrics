@@ -91,6 +91,14 @@ export default function App() {
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [showPaywall, setShowPaywall] = useState(null); // null | 'pdf' | 'ai' | 'classes'
   const [showPricingPage, setShowPricingPage] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('gradelens_dark') === 'true');
+
+  // Apply dark mode class to root whenever it changes
+  React.useEffect(() => {
+    localStorage.setItem('gradelens_dark', darkMode);
+    document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
+  }, [darkMode]);
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [tourStep, setTourStep] = useState(-1); // -1 = tour not started
 
@@ -156,6 +164,7 @@ export default function App() {
 
   const navigateTo = (type, id = null) => {
     if (type !== 'home') setTourStep(-1); // pause tour when drilling into a page
+    setShowSettings(false);
     if (type === 'home') window.location.hash = '#/';
     else if (type === 'class') window.location.hash = `#/class/${id}`;
     else if (type === 'student') window.location.hash = `#/student/${id}`;
@@ -575,6 +584,130 @@ export default function App() {
 
   // --- COMPONENTS ---
 
+  // ── DARK MODE CSS ─────────────────────────────────────────────────────────────
+  const DarkModeStyles = () => darkMode ? (
+    <style>{`
+      [data-theme="dark"] { color-scheme: dark; }
+      [data-theme="dark"] body,
+      [data-theme="dark"] .min-h-screen { background-color: #0f172a !important; color: #e2e8f0 !important; }
+      [data-theme="dark"] .bg-white { background-color: #1e293b !important; }
+      [data-theme="dark"] .bg-slate-50, [data-theme="dark"] .bg-gray-50 { background-color: #0f172a !important; }
+      [data-theme="dark"] .bg-gray-100 { background-color: #1e293b !important; }
+      [data-theme="dark"] .border-gray-100, [data-theme="dark"] .border-gray-200 { border-color: #334155 !important; }
+      [data-theme="dark"] .text-gray-900, [data-theme="dark"] .text-gray-800 { color: #f1f5f9 !important; }
+      [data-theme="dark"] .text-gray-700, [data-theme="dark"] .text-gray-600 { color: #cbd5e1 !important; }
+      [data-theme="dark"] .text-gray-500, [data-theme="dark"] .text-gray-400 { color: #94a3b8 !important; }
+      [data-theme="dark"] .bg-slate-50\/50, [data-theme="dark"] .bg-gray-50\/50 { background-color: #1e293b !important; }
+      [data-theme="dark"] input, [data-theme="dark"] textarea, [data-theme="dark"] select {
+        background-color: #0f172a !important; color: #e2e8f0 !important; border-color: #334155 !important;
+      }
+      [data-theme="dark"] .shadow-sm { box-shadow: 0 1px 3px rgba(0,0,0,0.5) !important; }
+      [data-theme="dark"] .divide-y > * { border-color: #1e293b !important; }
+      [data-theme="dark"] .hover\:bg-blue-50\/30:hover { background-color: rgba(30,58,138,0.2) !important; }
+    `}</style>
+  ) : null;
+
+  // ── SETTINGS PAGE ─────────────────────────────────────────────────────────────
+  const SettingsPage = () => {
+    const [notifStatus, setNotifStatus] = useState('');
+
+    const sendAtRiskNotifications = async () => {
+      setNotifStatus('sending');
+      try {
+        const res = await fetch('https://edumetrics-api-kro4.onrender.com/api/notify/at-risk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: user.id })
+        });
+        const data = await res.json();
+        setNotifStatus(res.ok ? `sent:${data.sent || 0}` : 'error');
+      } catch { setNotifStatus('error'); }
+    };
+
+    return (
+      <div className="max-w-2xl mx-auto space-y-6">
+        <div className="flex items-center gap-4 mb-8">
+          <button onClick={() => setShowSettings(false)} className="flex items-center text-gray-400 hover:text-gray-900 font-black text-xs uppercase tracking-widest transition-colors">
+            <ArrowLeft className="h-4 w-4 mr-1.5" /> Back
+          </button>
+          <h1 className="text-3xl font-black text-gray-900 tracking-tight">Settings</h1>
+        </div>
+
+        {/* Dark Mode */}
+        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-8">
+          <h2 className="font-black text-gray-900 text-lg mb-1">Appearance</h2>
+          <p className="text-gray-400 text-sm font-medium mb-6">Adjust how Grade Lens looks on your device.</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-black text-gray-800 text-sm">Dark Mode</p>
+              <p className="text-gray-400 text-xs font-medium mt-0.5">Easier on the eyes in low-light environments</p>
+            </div>
+            <button
+              onClick={() => setDarkMode(d => !d)}
+              className={`relative w-14 h-7 rounded-full transition-all duration-300 ${darkMode ? 'bg-blue-600' : 'bg-gray-200'}`}
+            >
+              <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-all duration-300 ${darkMode ? 'left-7' : 'left-0.5'}`} />
+            </button>
+          </div>
+        </div>
+
+        {/* Email Notifications */}
+        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-8">
+          <h2 className="font-black text-gray-900 text-lg mb-1">At-Risk Notifications</h2>
+          <p className="text-gray-400 text-sm font-medium mb-6">Send an email summary of all high-risk students across your classrooms.</p>
+          {user.email ? (
+            <div className="space-y-4">
+              <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 flex items-center gap-3">
+                <span className="text-blue-500 text-xl">✉</span>
+                <div>
+                  <p className="text-xs font-black text-blue-700 uppercase tracking-widest">Notifications sent to</p>
+                  <p className="font-black text-blue-900 text-sm mt-0.5">{user.email}</p>
+                </div>
+              </div>
+              <button
+                onClick={sendAtRiskNotifications}
+                disabled={notifStatus === 'sending'}
+                className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-black py-3.5 rounded-2xl text-sm uppercase tracking-widest transition-all shadow-sm"
+              >
+                {notifStatus === 'sending' ? 'Sending...' :
+                 notifStatus.startsWith('sent:') ? `✓ Sent to ${notifStatus.split(':')[1]} students` :
+                 notifStatus === 'error' ? '✕ Failed — try again' :
+                 'Send At-Risk Report Now'}
+              </button>
+            </div>
+          ) : (
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 text-center">
+              <p className="text-2xl mb-2">✉</p>
+              <p className="font-black text-amber-900 text-sm mb-1">No email address on file</p>
+              <p className="text-amber-700 text-xs font-medium">Email notifications require an email address. This can only be added at account creation.</p>
+            </div>
+          )}
+        </div>
+
+        {/* Account Info */}
+        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-8">
+          <h2 className="font-black text-gray-900 text-lg mb-6">Account</h2>
+          <div className="space-y-3">
+            <div className="flex justify-between items-center py-2 border-b border-gray-50">
+              <span className="text-gray-400 font-black text-xs uppercase tracking-widest">Username</span>
+              <span className="font-black text-gray-800 text-sm">{user.name}</span>
+            </div>
+            <div className="flex justify-between items-center py-2 border-b border-gray-50">
+              <span className="text-gray-400 font-black text-xs uppercase tracking-widest">Plan</span>
+              <span className={`font-black text-xs px-3 py-1.5 rounded-lg border uppercase tracking-widest ${isPremium ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-gray-600 bg-gray-50 border-gray-200'}`}>
+                {isPremium ? '✦ Premium' : 'Free'}
+              </span>
+            </div>
+            <div className="flex justify-between items-center py-2">
+              <span className="text-gray-400 font-black text-xs uppercase tracking-widest">Email</span>
+              <span className="font-black text-gray-800 text-sm">{user.email || 'Not set'}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // ── GUIDED DEMO TOUR ──────────────────────────────────────────────────────────
   const TOUR_STEPS = [
     {
@@ -984,24 +1117,23 @@ export default function App() {
   const SignupPage = () => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
+    const [email, setEmail] = useState('');
     const [error, setError] = useState('');
 
     const handleSignup = async (e) => {
       e.preventDefault();
       setError('');
-      
-      // Password Validation: At least 6 characters and contains a number
+
       if (password.length < 6 || !/\d/.test(password)) {
         setError('Password must be at least 6 characters and contain a number.');
         return;
       }
 
       try {
-        // Send data to our new Node.js backend (Note the /register URL!)
         const response = await fetch('https://edumetrics-api-kro4.onrender.com/api/auth/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password })
+          body: JSON.stringify({ username, password, email: email || null })
         });
 
         const data = await response.json();
@@ -1043,6 +1175,19 @@ export default function App() {
               <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Create Password</label>
               <input type="password" required value={password} onChange={e => setPassword(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 font-medium transition-all" placeholder="••••••••" />
               <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mt-2">Must be at least 6 characters and include a number.</p>
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide">Email Address</label>
+                <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-100">Optional</span>
+              </div>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 font-medium transition-all" placeholder="you@school.edu" />
+              <div className="mt-2.5 bg-blue-50 border border-blue-100 rounded-xl p-3 flex items-start gap-2">
+                <span className="text-blue-500 text-base mt-0.5">✉</span>
+                <p className="text-[11px] text-blue-700 font-medium leading-relaxed">
+                  Adding your email unlocks <strong>at-risk student email notifications</strong> — get alerted when a student's performance drops significantly.
+                </p>
+              </div>
             </div>
             <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-md transition-all flex justify-center items-center">
               <Lock size={18} className="mr-2" /> Create Secure Account
@@ -1861,6 +2006,59 @@ export default function App() {
           </div>
         </div>
 
+        {/* ── DETAILED CHARTS ── */}
+        {!isGeneratingPDF && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full mt-2">
+
+            {/* Percentile Rank Over Time */}
+            <div className="bg-white p-8 rounded-[2rem] border border-gray-100 shadow-sm h-80">
+              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6">Percentile Rank Over Time</h3>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData} margin={{ bottom: 50 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="name" tick={{fontSize: 10, fontWeight: 'bold'}} angle={-35} textAnchor="end" height={60} />
+                  <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} />
+                  <Tooltip formatter={(v) => [`${v}th percentile`, 'Class Rank']} />
+                  <ReferenceLine y={50} stroke="#cbd5e1" strokeDasharray="4 4" label={{ value: 'Median', position: 'right', fontSize: 9, fill: '#94a3b8' }} />
+                  <Line type="monotone" dataKey="percentile" name="Percentile" stroke="#8b5cf6" strokeWidth={3} dot={{r: 5}} isAnimationActive={false} />
+                  {chartData.some(d => d.ma !== null) && (
+                    <Line type="monotone" dataKey="ma" name="3-Test Moving Avg" stroke="#f59e0b" strokeWidth={2} strokeDasharray="5 5" dot={false} isAnimationActive={false} />
+                  )}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Subject Breakdown */}
+            <div className="bg-white p-8 rounded-[2rem] border border-gray-100 shadow-sm h-80">
+              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6">Subject Performance Breakdown</h3>
+              <div className="space-y-3 overflow-y-auto max-h-52">
+                {classes.map(cls => {
+                  const stuInClass = students.find(st => st.name === student.name && st.classId === cls.id);
+                  if (!stuInClass) return null;
+                  const stuScores = scores.filter(sc => sc.studentId === stuInClass.id).map(sc => sc.score);
+                  if (!stuScores.length) return null;
+                  const avg = stuScores.reduce((a, b) => a + b, 0) / stuScores.length;
+                  const barColor = avg >= 75 ? 'bg-emerald-500' : avg >= 55 ? 'bg-blue-500' : 'bg-orange-500';
+                  return (
+                    <div key={cls.id}>
+                      <div className="flex justify-between text-xs font-black text-gray-600 mb-1">
+                        <span className="truncate max-w-[160px]">{cls.name}</span>
+                        <span>{avg.toFixed(1)}%</span>
+                      </div>
+                      <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                        <div className={`h-full ${barColor} rounded-full transition-all duration-700`} style={{width: `${avg}%`}} />
+                      </div>
+                    </div>
+                  );
+                })}
+                {classes.filter(cls => students.find(st => st.name === student.name && st.classId === cls.id)).length === 0 && (
+                  <p className="text-gray-400 text-sm font-medium text-center py-8">Student only enrolled in one subject</p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── NOTES & GOALS ── */}
         {!isGeneratingPDF && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full mt-2">
@@ -1976,6 +2174,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans p-6 print:p-0 relative">
+      <DarkModeStyles />
       <div className="max-w-7xl mx-auto">
         {!isGeneratingPDF && (
           <header className="mb-10 flex items-center justify-between pb-6 border-b border-gray-200">
@@ -2002,6 +2201,9 @@ export default function App() {
               <div className="h-12 w-12 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600 font-black shadow-sm">
                 {user.name.charAt(0)}
               </div>
+              <button onClick={() => setShowSettings(true)} className="text-gray-400 hover:text-blue-500 transition-colors" title="Settings">
+                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
               <button onClick={() => setShowLogoutConfirm(true)} className="text-gray-400 hover:text-red-500 transition-colors" title="Sign Out">
                  <LogOut size={24} />
               </button>
@@ -2032,9 +2234,13 @@ export default function App() {
             </div>
           )}
 
-          {view.type === 'home' && <TeacherHome />}
-          {view.type === 'class' && (classes.length > 0 ? <ClassDashboard /> : <TeacherHome />)}
-          {view.type === 'student' && (classes.length > 0 ? <StudentDashboard /> : <TeacherHome />)}
+          {showSettings ? <SettingsPage /> : (
+            <>
+              {view.type === 'home' && <TeacherHome />}
+              {view.type === 'class' && (classes.length > 0 ? <ClassDashboard /> : <TeacherHome />)}
+              {view.type === 'student' && (classes.length > 0 ? <StudentDashboard /> : <TeacherHome />)}
+            </>
+          )}
         </main>
       </div>
     </div>
