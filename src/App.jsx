@@ -5,6 +5,12 @@ import { Users, TrendingUp, TrendingDown, AlertTriangle, BookOpen, ChevronRight,
 // ─── PREMIUM CONFIG ────────────────────────────────────────────────────────────
 // Replace with your real Stripe Payment Link URL from dashboard.stripe.com
 const STRIPE_PAYMENT_LINK = 'https://buy.stripe.com/YOUR_PAYMENT_LINK_ID';
+// Builds the Stripe URL with the username embedded so the webhook knows who to upgrade,
+// and sets the success redirect back to the app with ?payment=success
+const buildStripeUrl = (username) => {
+  const successUrl = encodeURIComponent(`${window.location.origin}/?payment=success`);
+  return `${STRIPE_PAYMENT_LINK}?client_reference_id=${encodeURIComponent(username)}&success_url=${successUrl}`;
+};
 const FREE_CLASS_LIMIT = 2;
 // ───────────────────────────────────────────────────────────────────────────────
 
@@ -85,14 +91,32 @@ export default function App() {
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [showPaywall, setShowPaywall] = useState(null); // null | 'pdf' | 'ai' | 'classes'
   const [showPricingPage, setShowPricingPage] = useState(false);
+  const [isDemoMode, setIsDemoMode] = useState(false);
+  const [tourStep, setTourStep] = useState(-1); // -1 = tour not started
 
-  // ── Premium status: stored per-user in localStorage after Stripe confirms ──
-  const isPremium = user ? (localStorage.getItem(`gradelens_premium_${user.name}`) === 'true') : false;
+  // ── Premium status: comes from the backend at login, lives in user object ──
+  const isPremium = user?.isPremium === true;
 
   const requirePremium = (feature, action) => {
     if (isPremium) { action(); return; }
     setShowPaywall(feature);
   };
+
+  // After Stripe redirects back with ?payment=success, re-check premium status
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('payment') === 'success' && user) {
+      fetch(`https://edumetrics-api-kro4.onrender.com/api/user/${encodeURIComponent(user.name)}/premium`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.isPremium) {
+            setUser(prev => ({ ...prev, isPremium: true }));
+            window.history.replaceState({}, '', window.location.pathname + window.location.hash);
+          }
+        })
+        .catch(console.error);
+    }
+  }, [user?.name]);
 
   useEffect(() => {
     if (!user) return;
@@ -127,6 +151,7 @@ export default function App() {
   }, [user]);
 
   const navigateTo = (type, id = null) => {
+    if (type !== 'home') setTourStep(-1); // pause tour when drilling into a page
     if (type === 'home') window.location.hash = '#/';
     else if (type === 'class') window.location.hash = `#/class/${id}`;
     else if (type === 'student') window.location.hash = `#/student/${id}`;
@@ -461,10 +486,11 @@ export default function App() {
       });
     });
 
-    setTimeout(() => { 
-      // Pass the demo user directly so the app knows where to save the data immediately
-      processCSV(csv, 'percentage', true, demoUser); 
-      setIsLoading(false); 
+    setTimeout(() => {
+      processCSV(csv, 'percentage', true, demoUser);
+      setIsLoading(false);
+      setIsDemoMode(true);
+      setTourStep(0); // auto-start the guided tour
     }, 1200);
   };
 
@@ -545,6 +571,167 @@ export default function App() {
 
   // --- COMPONENTS ---
 
+  // ── GUIDED DEMO TOUR ──────────────────────────────────────────────────────────
+  const TOUR_STEPS = [
+    {
+      id: 'import-panel',
+      title: '📂 Smart Data Import',
+      body: 'In the real app, you can drag-and-drop any CSV or Excel grading sheet from Canvas, SIMS, Arbor, or Google Classroom. The AI engine auto-detects headers and calculates percentages — zero prep needed.',
+      position: 'bottom',
+      targetId: 'demo-import-panel',
+    },
+    {
+      id: 'classroom-cards',
+      title: '🏫 Your Active Classrooms',
+      body: 'Each card represents a subject. Click any classroom to dive into its full analytics dashboard — trends, score distributions, and a ranked student roster.',
+      position: 'bottom',
+      targetId: 'demo-classroom-cards',
+    },
+    {
+      id: 'ai-insights',
+      title: '🧠 AI-Powered Insights',
+      body: 'Grade Lens automatically detects class-wide patterns — sudden drops, high variance tests, and improving trends — so you never miss a signal buried in the data.',
+      position: 'bottom',
+      targetId: 'demo-ai-insights',
+    },
+    {
+      id: 'risk-table',
+      title: '⚠️ Risk Prediction Table',
+      body: 'Every student is scored by our risk algorithm. It factors in declining trajectory, recent performance vs. class average, and percentile rank to flag who needs your attention most.',
+      position: 'top',
+      targetId: 'demo-risk-table',
+    },
+    {
+      id: 'student-profile',
+      title: '📈 Student Profile & Charts',
+      body: 'Click any student to see their full longitudinal profile — actual scores, a regression trendline, class average comparison, and an AI-generated forecast for their next assessment.',
+      position: 'top',
+      targetId: 'demo-risk-table',
+    },
+    {
+      id: 'pdf-export',
+      title: '📄 One-Click PDF Reports',
+      body: 'Generate a polished, parent-ready PDF report for any student or class in seconds. Premium feature — upgrade to unlock.',
+      position: 'top',
+      targetId: 'demo-pdf-btn',
+    },
+  ];
+
+  const TourOverlay = () => {
+    if (!isDemoMode || tourStep < 0 || tourStep >= TOUR_STEPS.length) return null;
+    const step = TOUR_STEPS[tourStep];
+    const total = TOUR_STEPS.length;
+
+    return (
+      <>
+        {/* Dark backdrop */}
+        <div className="fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-[1px] pointer-events-none" />
+
+        {/* Floating tooltip card */}
+        <div className="fixed z-50 bottom-8 left-1/2 -translate-x-1/2 w-full max-w-lg px-4 pointer-events-auto">
+          <div className="bg-white rounded-3xl shadow-2xl border border-gray-100 overflow-hidden">
+            {/* Progress bar */}
+            <div className="h-1 bg-gray-100">
+              <div
+                className="h-1 bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-500"
+                style={{ width: `${((tourStep + 1) / total) * 100}%` }}
+              />
+            </div>
+            <div className="p-6">
+              {/* Step counter */}
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                  Step {tourStep + 1} of {total}
+                </span>
+                <button
+                  onClick={() => setTourStep(-1)}
+                  className="text-gray-300 hover:text-gray-600 text-lg font-bold leading-none transition-colors"
+                >✕</button>
+              </div>
+              <h3 className="text-lg font-black text-gray-900 mb-2">{step.title}</h3>
+              <p className="text-gray-500 font-medium text-sm leading-relaxed mb-5">{step.body}</p>
+              {/* Nav buttons */}
+              <div className="flex items-center justify-between gap-3">
+                <button
+                  onClick={() => setTourStep(s => s - 1)}
+                  disabled={tourStep === 0}
+                  className="px-5 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed font-black text-gray-600 text-xs uppercase tracking-widest transition-all"
+                >
+                  ← Prev
+                </button>
+                <div className="flex gap-1.5">
+                  {TOUR_STEPS.map((_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setTourStep(i)}
+                      className={`w-2 h-2 rounded-full transition-all ${i === tourStep ? 'bg-blue-500 w-5' : 'bg-gray-200 hover:bg-gray-400'}`}
+                    />
+                  ))}
+                </div>
+                {tourStep < total - 1 ? (
+                  <button
+                    onClick={() => setTourStep(s => s + 1)}
+                    className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-widest transition-all shadow-sm shadow-blue-200"
+                  >
+                    Next →
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setTourStep(-1)}
+                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white font-black text-xs uppercase tracking-widest transition-all shadow-sm"
+                  >
+                    Done ✓
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Pulsing target indicator — shown above the card */}
+          <div className="flex justify-center -mt-2 mb-2 order-first">
+            <div className="w-3 h-3 bg-blue-500 rounded-full animate-ping opacity-75" />
+          </div>
+        </div>
+
+        {/* Highlight ring around the targeted element */}
+        {step.targetId && <TargetHighlight targetId={step.targetId} />}
+      </>
+    );
+  };
+
+  const TargetHighlight = ({ targetId }) => {
+    const [rect, setRect] = React.useState(null);
+
+    React.useEffect(() => {
+      const el = document.getElementById(targetId);
+      if (!el) return;
+      const update = () => {
+        const r = el.getBoundingClientRect();
+        setRect({ top: r.top + window.scrollY, left: r.left, width: r.width, height: r.height });
+      };
+      update();
+      window.addEventListener('resize', update);
+      window.addEventListener('scroll', update);
+      return () => { window.removeEventListener('resize', update); window.removeEventListener('scroll', update); };
+    }, [targetId]);
+
+    if (!rect) return null;
+    return (
+      <div
+        className="rounded-2xl pointer-events-none"
+        style={{
+          position: 'fixed',
+          top: rect.top - window.scrollY - 6,
+          left: rect.left - 6,
+          width: rect.width + 12,
+          height: rect.height + 12,
+          boxShadow: '0 0 0 4px #3b82f6, 0 0 0 8px rgba(59,130,246,0.2)',
+          zIndex: 45,
+        }}
+      />
+    );
+  };
+
   // ── PAYWALL MODAL ─────────────────────────────────────────────────────────────
   const paywallCopy = {
     pdf:     { icon: '📄', title: 'PDF Reports are Premium',      desc: 'Generate beautiful, parent-ready PDF progress reports for every student with one click.' },
@@ -587,7 +774,7 @@ export default function App() {
                 </div>
               ))}
             </div>
-            <a href={STRIPE_PAYMENT_LINK} target="_blank" rel="noreferrer"
+            <a href={user ? buildStripeUrl(user.name) : STRIPE_PAYMENT_LINK} target="_blank" rel="noreferrer"
               className="block w-full text-center bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-black py-4 rounded-2xl shadow-lg shadow-orange-200 transition-all text-sm uppercase tracking-widest mb-3">
               Upgrade to Premium — $9.99/mo
             </a>
@@ -699,7 +886,7 @@ export default function App() {
                   ✓ Active Plan
                 </div>
               ) : (
-                <a href={STRIPE_PAYMENT_LINK} target="_blank" rel="noreferrer"
+                <a href={user ? buildStripeUrl(user.name) : STRIPE_PAYMENT_LINK} target="_blank" rel="noreferrer"
                   className="block w-full text-center bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-500 hover:to-orange-600 text-white font-black py-4 rounded-2xl shadow-lg shadow-amber-900/30 transition-all text-sm uppercase tracking-widest">
                   Upgrade Now →
                 </a>
@@ -817,7 +1004,7 @@ export default function App() {
 
         if (response.ok) {
           // Success! The database saved them. Log them in.
-          setUser({ name: data.user.username, role: 'Teacher', id: data.user.id });
+          setUser({ name: data.user.username, role: 'Teacher', id: data.user.id, isPremium: false });
         } else {
           // Server caught an error (like username already taken)
           setError(data.error || 'Failed to create account.');
@@ -891,7 +1078,7 @@ export default function App() {
 
         if (response.ok) {
           // Success! Credentials match.
-          setUser({ name: data.user.username, role: 'Teacher', id: data.user.id });
+          setUser({ name: data.user.username, role: 'Teacher', id: data.user.id, isPremium: data.user.isPremium ?? false });
         } else {
           // Wrong password or username
           setError(data.error || 'Invalid login details.');
@@ -971,7 +1158,7 @@ export default function App() {
               <button onClick={() => setShowPricingPage(true)} className="text-amber-700 font-black text-xs uppercase tracking-widest hover:text-amber-900 transition-colors">
                 See plans →
               </button>
-              <a href={STRIPE_PAYMENT_LINK} target="_blank" rel="noreferrer"
+              <a href={user ? buildStripeUrl(user.name) : STRIPE_PAYMENT_LINK} target="_blank" rel="noreferrer"
                 className="bg-gradient-to-r from-amber-500 to-orange-500 text-white font-black px-5 py-2.5 rounded-xl text-xs uppercase tracking-widest shadow-sm hover:from-amber-600 hover:to-orange-600 transition-all whitespace-nowrap">
                 Upgrade — $9.99/mo
               </a>
@@ -985,48 +1172,71 @@ export default function App() {
           </div>
         )}
 
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-6">
+        <div id="demo-import-panel" className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-5 gap-4">
             <h2 className="text-lg font-bold text-gray-800 flex items-center">
-              <FileSpreadsheet className="mr-2 text-blue-500 h-5 w-5" /> Import & Export Data
+              <FileSpreadsheet className="mr-2 text-blue-500 h-5 w-5" /> {isDemoMode ? 'Demo Data' : 'Import & Export Data'}
             </h2>
             <div className="px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-xl text-xs font-bold flex items-center">
-              <Wand2 size={14} className="mr-2"/> Zero-Prep Smart Engine Active
+              <Wand2 size={14} className="mr-2"/> {isDemoMode ? 'Demo Mode Active' : 'Zero-Prep Smart Engine Active'}
             </div>
           </div>
-          
-          <p className="text-sm text-gray-500 font-medium mb-6">Upload raw grading sheets directly from your school's system (Canvas, Google Classroom, SIMS, Arbor, etc.). The AI automatically parses headers, stitches split names, and calculates percentages regardless of column order.</p>
 
-          <div className="flex flex-wrap items-end gap-5 border-t border-gray-100 pt-5">
-            <div className="flex flex-col">
-              <label className="text-xs font-bold text-gray-400 mb-1.5 uppercase tracking-wider">Scoring Format</label>
-              <select value={gradeFormat} onChange={(e) => setGradeFormat(e.target.value)} className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 w-full sm:w-auto">
-                <option value="auto">Auto-Detect</option>
-                <option value="percentage">Percentage (0-100)</option>
-                <option value="uk_gcse">UK GCSE (9-1)</option>
-                <option value="uk_alevel">UK A-Level (A*-U)</option>
-                <option value="us_letter">US Letter (A+ to F)</option>
-                <option value="ib">IB Diploma (7-1)</option>
-                <option value="uni_uk">UK Degree (1st, 2:1, 2:2...)</option>
-              </select>
-            </div>
-            
-            <div className="flex flex-col">
-              <label className="text-xs font-bold text-gray-400 mb-1.5 uppercase tracking-wider">Upload Any File</label>
-              <div className="relative">
-                <input type="file" accept=".csv, .xlsx, .xls" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" id="file-upload" />
-                <label htmlFor="file-upload" className="flex items-center justify-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition-colors cursor-pointer text-sm shadow-sm">
-                  <UploadCloud size={18} /> Select Excel / CSV
-                </label>
+          {isDemoMode ? (
+            <div className="text-center py-4">
+              <p className="text-sm text-gray-500 font-medium mb-5">
+                You're viewing a pre-loaded demo dataset with 2 subjects and 25 students each.
+                In the full app, you can upload any Excel or CSV grading sheet and the AI parses it instantly.
+              </p>
+              <div className="flex flex-wrap gap-3 justify-center">
+                <button
+                  onClick={() => { setTourStep(0); }}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm transition-all shadow-sm"
+                >
+                  ▶ Restart Guided Tour
+                </button>
+                <button
+                  onClick={downloadCSV}
+                  disabled={scores.length === 0}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-gray-900 hover:bg-black disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-xl font-bold transition-colors text-sm shadow-sm"
+                >
+                  <Download size={16} /> Export Demo CSV
+                </button>
               </div>
             </div>
-
-            <div className="flex flex-col ml-auto">
-              <button onClick={downloadCSV} disabled={scores.length === 0} className="flex items-center justify-center gap-2 px-5 py-2.5 bg-gray-900 hover:bg-black disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-xl font-bold transition-colors text-sm shadow-sm">
-                <Download size={16} /> Export Master CSV
-              </button>
-            </div>
-          </div>
+          ) : (
+            <>
+              <p className="text-sm text-gray-500 font-medium mb-6">Upload raw grading sheets directly from your school's system (Canvas, Google Classroom, SIMS, Arbor, etc.). The AI automatically parses headers, stitches split names, and calculates percentages regardless of column order.</p>
+              <div className="flex flex-wrap items-end gap-5 border-t border-gray-100 pt-5">
+                <div className="flex flex-col">
+                  <label className="text-xs font-bold text-gray-400 mb-1.5 uppercase tracking-wider">Scoring Format</label>
+                  <select value={gradeFormat} onChange={(e) => setGradeFormat(e.target.value)} className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 w-full sm:w-auto">
+                    <option value="auto">Auto-Detect</option>
+                    <option value="percentage">Percentage (0-100)</option>
+                    <option value="uk_gcse">UK GCSE (9-1)</option>
+                    <option value="uk_alevel">UK A-Level (A*-U)</option>
+                    <option value="us_letter">US Letter (A+ to F)</option>
+                    <option value="ib">IB Diploma (7-1)</option>
+                    <option value="uni_uk">UK Degree (1st, 2:1, 2:2...)</option>
+                  </select>
+                </div>
+                <div className="flex flex-col">
+                  <label className="text-xs font-bold text-gray-400 mb-1.5 uppercase tracking-wider">Upload Any File</label>
+                  <div className="relative">
+                    <input type="file" accept=".csv, .xlsx, .xls" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" id="file-upload" />
+                    <label htmlFor="file-upload" className="flex items-center justify-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition-colors cursor-pointer text-sm shadow-sm">
+                      <UploadCloud size={18} /> Select Excel / CSV
+                    </label>
+                  </div>
+                </div>
+                <div className="flex flex-col ml-auto">
+                  <button onClick={downloadCSV} disabled={scores.length === 0} className="flex items-center justify-center gap-2 px-5 py-2.5 bg-gray-900 hover:bg-black disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-xl font-bold transition-colors text-sm shadow-sm">
+                    <Download size={16} /> Export Master CSV
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         <div className="flex justify-between items-center mb-4 mt-10">
@@ -1039,7 +1249,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div id="demo-classroom-cards" className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {classes.length === 0 ? (
             <div className="col-span-full py-20 text-center bg-white rounded-3xl border border-dashed border-gray-300">
               <div className="mx-auto w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mb-4">
@@ -1110,7 +1320,7 @@ export default function App() {
             <button onClick={() => navigateTo('home')} className="flex items-center text-gray-500 hover:text-gray-900 font-bold text-sm transition-colors uppercase tracking-widest">
               <ArrowLeft className="h-4 w-4 mr-2" /> Return to Dashboard
             </button>
-            <button onClick={() => requirePremium('pdf', () => downloadPDF(`Class_Report_${activeClass?.name.replace(/\s+/g, '_')}`))} className="flex items-center gap-2 px-5 py-2.5 bg-blue-50 text-blue-600 rounded-xl font-bold hover:bg-blue-100 transition-colors text-sm uppercase tracking-wide">
+            <button id="demo-pdf-btn" onClick={() => requirePremium('pdf', () => downloadPDF(`Class_Report_${activeClass?.name.replace(/\s+/g, '_')}`))} className="flex items-center gap-2 px-5 py-2.5 bg-blue-50 text-blue-600 rounded-xl font-bold hover:bg-blue-100 transition-colors text-sm uppercase tracking-wide">
               <Printer size={16} /> {isPremium ? 'Download Class Report (PDF)' : '🔒 Download PDF (Premium)'}
             </button>
           </div>
@@ -1150,6 +1360,7 @@ export default function App() {
           </div>
         )}
 
+        <div id="demo-ai-insights">
         {classData.autoInsights.length > 0 && (
           isPremium ? (
           <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 p-6 rounded-3xl shadow-sm mb-8">
@@ -1189,6 +1400,7 @@ export default function App() {
           </div>
           )
         )}
+        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 w-full">
           <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 w-full h-80">
@@ -1218,7 +1430,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="bg-white rounded-[2rem] border border-gray-100 overflow-hidden shadow-sm mt-8">
+        <div id="demo-risk-table" className="bg-white rounded-[2rem] border border-gray-100 overflow-hidden shadow-sm mt-8">
           <div className="p-8 border-b border-gray-100">
             <h3 className="text-xl font-black text-gray-800 tracking-tight">Student Roster & Risk Prediction</h3>
           </div>
@@ -1549,6 +1761,7 @@ export default function App() {
         )}
         
         <main>
+          <TourOverlay />
           <PaywallModal />
           {showLogoutConfirm && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
