@@ -1305,11 +1305,39 @@ export default function App() {
   const ClassDashboard = () => {
     const activeClass = classes.find(c => c.id === view.id) || classes.find(c => c.id === classData.activeClassId);
     const [studentSearch, setStudentSearch] = useState('');
-    
+    const [sortKey, setSortKey] = useState('slope');   // default: sorted by trajectory
+    const [sortDir, setSortDir] = useState('desc');    // 'asc' | 'desc'
+
     if(!activeClass) return <TeacherHome />;
 
-    const filteredStudents = classData.studentStats.filter(stu => 
-      stu.name.toLowerCase().includes(studentSearch.toLowerCase()) || 
+    const handleSort = (key) => {
+      if (sortKey === key) {
+        setSortDir(d => d === 'desc' ? 'asc' : 'desc');
+      } else {
+        setSortKey(key);
+        setSortDir('desc');
+      }
+    };
+
+    const riskOrder = { 'High': 3, 'Medium': 2, 'Low': 1 };
+
+    const sortedStudents = [...classData.studentStats].sort((a, b) => {
+      let aVal, bVal;
+      if (sortKey === 'name')       { aVal = a.name; bVal = b.name; }
+      else if (sortKey === 'mean')  { aVal = a.mean; bVal = b.mean; }
+      else if (sortKey === 'zScore'){ aVal = a.avgZScore; bVal = b.avgZScore; }
+      else if (sortKey === 'slope') { aVal = a.slope; bVal = b.slope; }
+      else if (sortKey === 'risk')  { aVal = riskOrder[a.riskLevel] || 0; bVal = riskOrder[b.riskLevel] || 0; }
+      else { aVal = a.mean; bVal = b.mean; }
+
+      if (typeof aVal === 'string') {
+        return sortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+      }
+      return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
+    });
+
+    const filteredStudents = sortedStudents.filter(stu =>
+      stu.name.toLowerCase().includes(studentSearch.toLowerCase()) ||
       String(stu.externalId).toLowerCase().includes(studentSearch.toLowerCase())
     );
     
@@ -1438,12 +1466,31 @@ export default function App() {
           <table className="w-full text-left">
             <thead className="bg-slate-50/50 text-[10px] text-gray-400 uppercase font-black tracking-widest border-b border-gray-100">
               <tr>
-                <th className="px-8 py-4">Student Identity</th>
-                <th className="px-8 py-4">Mean Score</th>
-                <th className="px-8 py-4">Relative Standing</th>
-                <th className="px-8 py-4">Trajectory</th>
-                <th className="px-8 py-4">Risk Profile</th>
-                {!isGeneratingPDF && <th className="px-8 py-4 text-right">Actions</th>}
+                {/* Helper to render a sortable column header */}
+                {(() => {
+                  const SortTh = ({ label, col, align = 'left' }) => {
+                    const active = sortKey === col;
+                    const arrow = active ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ' ↕';
+                    return (
+                      <th
+                        className={`px-8 py-4 cursor-pointer select-none whitespace-nowrap hover:text-blue-500 transition-colors ${active ? 'text-blue-500' : ''} ${align === 'right' ? 'text-right' : ''}`}
+                        onClick={() => !isGeneratingPDF && handleSort(col)}
+                      >
+                        {label}<span className={`ml-1 ${active ? 'text-blue-400' : 'text-gray-300'}`}>{arrow}</span>
+                      </th>
+                    );
+                  };
+                  return (
+                    <>
+                      <SortTh label="Student Identity" col="name" />
+                      <SortTh label="Mean Score"       col="mean" />
+                      <SortTh label="Relative Standing" col="zScore" />
+                      <SortTh label="Trajectory"       col="slope" />
+                      <SortTh label="Risk Profile"     col="risk" />
+                      {!isGeneratingPDF && <th className="px-8 py-4 text-right">Actions</th>}
+                    </>
+                  );
+                })()}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
