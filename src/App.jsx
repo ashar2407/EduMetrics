@@ -1239,6 +1239,58 @@ export default function App() {
           )}
         </div>
 
+        {/* ── CLASS COMPARISON PANEL ── */}
+        {classes.length >= 2 && (
+          <div className="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm mt-4">
+            <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6">Subject Performance Comparison</h2>
+            <div className="space-y-4">
+              {classes.map(cls => {
+                const classStudents = students.filter(s => s.classId === cls.id);
+                const classScores = scores.filter(sc => classStudents.some(st => st.id === sc.studentId));
+                const mean = classScores.length ? classScores.reduce((a, b) => a + b.score, 0) / classScores.length : 0;
+                const highRisk = classStudents.filter(st => {
+                  const sScores = scores.filter(sc => sc.studentId === st.id).map(sc => sc.score);
+                  if (!sScores.length) return false;
+                  const avg = sScores.reduce((a,b) => a+b,0)/sScores.length;
+                  return avg < 55;
+                }).length;
+                const allMeans = classes.map(c => {
+                  const cs = students.filter(s => s.classId === c.id);
+                  const csc = scores.filter(sc => cs.some(st => st.id === sc.studentId));
+                  return csc.length ? csc.reduce((a, b) => a + b.score, 0) / csc.length : 0;
+                });
+                const maxMean = Math.max(...allMeans, 1);
+                const barColor = mean >= 75 ? 'bg-emerald-500' : mean >= 55 ? 'bg-blue-500' : 'bg-orange-500';
+                return (
+                  <div key={cls.id} className="flex items-center gap-4 group cursor-pointer" onClick={() => navigateTo('class', cls.id)}>
+                    <div className="w-40 text-xs font-black text-gray-700 truncate shrink-0 group-hover:text-blue-600 transition-colors">{cls.name}</div>
+                    <div className="flex-1 h-7 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full ${barColor} rounded-full transition-all duration-700 flex items-center justify-end pr-3`}
+                        style={{ width: `${(mean / maxMean) * 100}%` }}
+                      >
+                        <span className="text-white text-[10px] font-black">{mean.toFixed(1)}%</span>
+                      </div>
+                    </div>
+                    <div className="w-24 text-right shrink-0">
+                      {highRisk > 0 ? (
+                        <span className="text-[10px] font-black text-red-500 bg-red-50 border border-red-100 px-2 py-1 rounded-lg">
+                          {highRisk} at risk
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-1 rounded-lg">
+                          On track
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-6">Click any bar to open that classroom</p>
+          </div>
+        )}
+
         <div className="flex justify-between items-center mb-4 mt-10">
           <h2 className="text-2xl font-black text-gray-800 tracking-tight">Active Classrooms ({filteredClasses.length})</h2>
           <div className="relative">
@@ -1459,8 +1511,31 @@ export default function App() {
         </div>
 
         <div id="demo-risk-table" className="bg-white rounded-[2rem] border border-gray-100 overflow-hidden shadow-sm mt-8">
-          <div className="p-8 border-b border-gray-100">
+          <div className="p-8 border-b border-gray-100 flex items-center justify-between flex-wrap gap-4">
             <h3 className="text-xl font-black text-gray-800 tracking-tight">Student Roster & Risk Prediction</h3>
+            {!isGeneratingPDF && (
+              <button
+                onClick={() => {
+                  // Build one personalised message per student and download as CSV
+                  const rows = [['Student Name', 'Student ID', 'Message']];
+                  classData.studentStats.forEach(s => {
+                    const trend = s.slope > 1 ? 'showing great improvement' : s.slope < -1 ? 'showing a declining trend' : 'maintaining a steady performance';
+                    const risk = s.riskLevel === 'High' ? ' We would welcome the opportunity to discuss additional support.' : '';
+                    const msg = `Dear Parent/Guardian of ${s.name}, I wanted to share a brief update on ${s.name}'s progress in ${activeClass?.name}. Their current average is ${s.mean.toFixed(1)}% and they are ${trend} over recent assessments.${risk} Please don't hesitate to get in touch if you have any questions. Kind regards, ${user.name}.`;
+                    rows.push([s.name, s.externalId, `"${msg.replace(/"/g, '""')}"`]);
+                  });
+                  const csv = rows.map(r => r.join(',')).join('\n');
+                  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                  const link = document.createElement('a');
+                  link.href = URL.createObjectURL(blob);
+                  link.download = `Parent_Messages_${activeClass?.name.replace(/\s+/g, '_')}.csv`;
+                  link.click();
+                }}
+                className="flex items-center gap-2 px-5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-sm border border-emerald-100"
+              >
+                <Download size={14} /> Export Parent Messages (CSV)
+              </button>
+            )}
           </div>
           
           <table className="w-full text-left">
@@ -1546,6 +1621,41 @@ export default function App() {
   const StudentDashboard = () => {
     const student = classData.studentStats.find(s => s.id === view.id);
     if (!student) return <TeacherHome />; // Fallback
+
+    const [note, setNote] = useState('');
+    const [noteStatus, setNoteStatus] = useState('');  // '' | 'saving' | 'saved' | 'error'
+    const [goal, setGoal] = useState('');
+    const [goalStatus, setGoalStatus] = useState('');
+    const [savedGoal, setSavedGoal] = useState(null);
+
+    // Load existing note + goal from backend on mount
+    React.useEffect(() => {
+      if (!user?.id) return;
+      fetch(`https://edumetrics-api-kro4.onrender.com/api/notes/${user.id}/${encodeURIComponent(student.id)}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data) {
+            setNote(data.note || '');
+            setGoal(data.goal != null ? String(data.goal) : '');
+            setSavedGoal(data.goal != null ? data.goal : null);
+          }
+        })
+        .catch(() => {});
+    }, [student.id, user?.id]);
+
+    const saveNote = async () => {
+      setNoteStatus('saving');
+      try {
+        const res = await fetch('https://edumetrics-api-kro4.onrender.com/api/notes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: user.id, studentId: student.id, note, goal: goal !== '' ? parseFloat(goal) : null })
+        });
+        setNoteStatus(res.ok ? 'saved' : 'error');
+        if (res.ok && goal !== '') setSavedGoal(parseFloat(goal));
+        setTimeout(() => setNoteStatus(''), 2500);
+      } catch { setNoteStatus('error'); setTimeout(() => setNoteStatus(''), 2500); }
+    };
 
     const chartData = classData.assessments.map((ass, i) => {
       const scoreObj = student.scores.find(s => s.assessmentId === ass.id);
@@ -1746,6 +1856,94 @@ export default function App() {
             </div>
           </div>
         </div>
+
+        {/* ── NOTES & GOALS ── */}
+        {!isGeneratingPDF && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full mt-2">
+
+            {/* Teacher Notes */}
+            <div className="bg-white p-8 rounded-[2rem] border border-gray-100 shadow-sm">
+              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <FileText className="h-4 w-4 text-blue-500" /> Teacher Notes
+              </h3>
+              <textarea
+                value={note}
+                onChange={e => setNote(e.target.value)}
+                placeholder="Add private notes about this student — visible only to you..."
+                className="w-full h-32 px-4 py-3 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none transition-all"
+              />
+              <div className="flex items-center justify-between mt-3">
+                <span className={`text-xs font-bold transition-all ${
+                  noteStatus === 'saved' ? 'text-emerald-500' :
+                  noteStatus === 'saving' ? 'text-blue-400 animate-pulse' :
+                  noteStatus === 'error' ? 'text-red-500' : 'text-transparent'
+                }`}>
+                  {noteStatus === 'saved' ? '✓ Saved' : noteStatus === 'saving' ? 'Saving...' : noteStatus === 'error' ? '✕ Error saving' : '.'}
+                </span>
+                <button onClick={saveNote} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-sm">
+                  Save Note
+                </button>
+              </div>
+            </div>
+
+            {/* Goal Setting */}
+            <div className="bg-white p-8 rounded-[2rem] border border-gray-100 shadow-sm">
+              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <Target className="h-4 w-4 text-purple-500" /> Score Goal
+              </h3>
+              <div className="flex items-center gap-3 mb-5">
+                <input
+                  type="number"
+                  min="0" max="100"
+                  value={goal}
+                  onChange={e => setGoal(e.target.value)}
+                  placeholder="e.g. 80"
+                  className="w-28 px-4 py-3 rounded-xl border border-gray-200 text-lg font-black text-gray-800 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all text-center"
+                />
+                <span className="text-2xl font-black text-gray-300">%</span>
+                <div className="flex-1">
+                  <p className="text-xs text-gray-400 font-medium">Set a target score for this student</p>
+                  {savedGoal !== null && (
+                    <p className="text-xs font-black mt-1 text-purple-600">Current goal: {savedGoal}%</p>
+                  )}
+                </div>
+              </div>
+              {/* Progress bar */}
+              {savedGoal !== null && (
+                <div className="mb-5">
+                  <div className="flex justify-between text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">
+                    <span>Current avg</span><span>Goal</span>
+                  </div>
+                  <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-700 ${student.mean >= savedGoal ? 'bg-emerald-500' : 'bg-purple-500'}`}
+                      style={{ width: `${Math.min(100, (student.mean / savedGoal) * 100)}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-xs font-black mt-1.5">
+                    <span className="text-gray-600">{student.mean.toFixed(1)}%</span>
+                    <span className={student.mean >= savedGoal ? 'text-emerald-600' : 'text-purple-600'}>
+                      {student.mean >= savedGoal ? '✓ Goal reached!' : `${(savedGoal - student.mean).toFixed(1)}% to go`}
+                    </span>
+                    <span className="text-gray-400">{savedGoal}%</span>
+                  </div>
+                </div>
+              )}
+              <div className="flex items-center justify-between">
+                <span className={`text-xs font-bold transition-all ${
+                  goalStatus === 'saved' ? 'text-emerald-500' :
+                  goalStatus === 'saving' ? 'text-blue-400 animate-pulse' :
+                  goalStatus === 'error' ? 'text-red-500' : 'text-transparent'
+                }`}>
+                  {goalStatus === 'saved' ? '✓ Saved' : goalStatus === 'saving' ? 'Saving...' : goalStatus === 'error' ? '✕ Error' : '.'}
+                </span>
+                <button onClick={saveNote} className="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-sm">
+                  Save Goal
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {isGeneratingPDF && (
           <div className="mt-20 pt-10 border-t-2 border-gray-900">
