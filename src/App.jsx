@@ -94,8 +94,12 @@ export default function App() {
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [tourStep, setTourStep] = useState(-1); // -1 = tour not started
 
-  // ── Premium status: comes from the backend at login, lives in user object ──
-  const isPremium = user?.isPremium === true;
+  // ── Premium status: backend (login) OR localStorage dev override ──
+  // Dev override: in browser console run:
+  //   localStorage.setItem('gradelens_dev_premium', 'true')  → unlock
+  //   localStorage.removeItem('gradelens_dev_premium')        → relock
+  const isPremium = user?.isPremium === true ||
+    localStorage.getItem('gradelens_dev_premium') === 'true';
 
   const requirePremium = (feature, action) => {
     if (isPremium) { action(); return; }
