@@ -102,6 +102,8 @@ export default function App() {
   }, [darkMode]);
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [tourStep, setTourStep] = useState(-1); // -1 = tour not started
+  const [onboardingStep, setOnboardingStep] = useState(-1); // first-login onboarding
+  const [isOnboarding, setIsOnboarding] = useState(false);
 
   // ── Premium status: backend (login) OR localStorage dev override ──
   // Dev override: in browser console run:
@@ -738,6 +740,19 @@ export default function App() {
           })()}
         </div>
 
+        {/* Onboarding */}
+        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-8">
+          <h2 className="font-black text-gray-900 text-lg mb-1">Help & Onboarding</h2>
+          <p className="text-gray-400 text-sm font-medium mb-5">Replay the intro tour or explore the demo dataset.</p>
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={() => { setShowSettings(false); setIsOnboarding(true); setOnboardingStep(0); }}
+              className="flex items-center gap-2 px-5 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl font-black text-xs uppercase tracking-widest transition-all border border-blue-100">
+              ▶ Replay Intro Tour
+            </button>
+          </div>
+        </div>
+
         {/* Account Info */}
         <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-8">
           <h2 className="font-black text-gray-900 text-lg mb-6">Account</h2>
@@ -832,55 +847,111 @@ export default function App() {
   };
 
   // ── GUIDED DEMO TOUR ──────────────────────────────────────────────────────────
+  // Demo tour steps — shown when entering demo mode
   const TOUR_STEPS = [
     {
       id: 'import-panel',
-      title: '📂 Smart Data Import',
-      body: 'In the real app, you can drag-and-drop any CSV or Excel grading sheet from Canvas, SIMS, Arbor, or Google Classroom. The AI engine auto-detects headers and calculates percentages — zero prep needed.',
-      position: 'bottom',
+      title: '📂 Zero-Prep Data Import',
+      body: 'Upload any CSV or Excel grading sheet from Canvas, SIMS, Arbor, or Google Classroom. The AI auto-detects every column, stitches split names, and calculates percentages — no reformatting needed.',
       targetId: 'demo-import-panel',
+    },
+    {
+      id: 'subject-overview',
+      title: '📊 Subject Overview & Risk Distribution',
+      body: 'Each subject shows a colour-coded bar — red for high risk, orange for medium, green for on track — so you can see at a glance which classes need attention without clicking in.',
+      targetId: 'demo-subject-overview',
+    },
+    {
+      id: 'at-risk-panel',
+      title: '⚠️ Students Needing Attention',
+      body: 'The at-risk panel surfaces flagged students across all your subjects in one place, ranked by priority. See their trajectory trend and jump straight to their profile.',
+      targetId: 'demo-atrisk-panel',
     },
     {
       id: 'classroom-cards',
       title: '🏫 Your Active Classrooms',
-      body: 'Each card represents a subject. Click any classroom to dive into its full analytics dashboard — trends, score distributions, and a ranked student roster.',
-      position: 'bottom',
+      body: 'Each card shows enrolment and an at-risk count. Click any classroom to open the full analytics dashboard with trend charts, score distribution, and a sortable student roster.',
       targetId: 'demo-classroom-cards',
     },
     {
       id: 'ai-insights',
-      title: '🧠 AI-Powered Insights',
-      body: 'Grade Lens automatically detects class-wide patterns — sudden drops, high variance tests, and improving trends — so you never miss a signal buried in the data.',
-      position: 'bottom',
+      title: '🧠 AI-Powered Class Insights ✦ Premium',
+      body: 'Grade Lens automatically flags class-wide patterns — sudden score drops, high variance tests, improving trends — so you never miss a signal buried in the data.',
       targetId: 'demo-ai-insights',
     },
     {
       id: 'risk-table',
-      title: '⚠️ Risk Prediction Table',
-      body: 'Every student is scored by our risk algorithm. It factors in declining trajectory, recent performance vs. class average, and percentile rank to flag who needs your attention most.',
-      position: 'top',
-      targetId: 'demo-risk-table',
-    },
-    {
-      id: 'student-profile',
-      title: '📈 Student Profile & Charts',
-      body: 'Click any student to see their full longitudinal profile — actual scores, a regression trendline, class average comparison, and an AI-generated forecast for their next assessment.',
-      position: 'top',
+      title: '⚙️ Sortable Risk Roster ✦ Premium',
+      body: 'Click any column header to sort students by mean score, trajectory, relative standing, or risk level. Instantly see who is improving and who needs intervention.',
       targetId: 'demo-risk-table',
     },
     {
       id: 'pdf-export',
-      title: '📄 One-Click PDF Reports',
-      body: 'Generate a polished, parent-ready PDF report for any student or class in seconds. Premium feature — upgrade to unlock.',
-      position: 'top',
+      title: '📄 One-Click PDF Reports ✦ Premium',
+      body: 'Generate a polished, parent-ready PDF for any student or class in seconds — including charts, risk profile, trajectory forecast, and an educator signature line.',
       targetId: 'demo-pdf-btn',
     },
   ];
 
+  // Onboarding tour steps — shown to real users on first login
+  const ONBOARDING_STEPS = [
+    {
+      id: 'welcome',
+      title: '👋 Welcome to Grade Lens',
+      body: 'This quick tour will show you the key features. You can dismiss it any time and restart from Settings.',
+      targetId: null,
+    },
+    {
+      id: 'import',
+      title: '📂 Start by Importing Your Data',
+      body: 'Click "Select Excel / CSV" to upload a grading sheet from any school system. Grade Lens auto-detects columns and scoring formats — no prep required.',
+      targetId: 'demo-import-panel',
+    },
+    {
+      id: 'overview',
+      title: '📊 Dashboard Overview',
+      body: 'Once imported, the Subject Overview and At-Risk panels give you an instant snapshot. Both are collapsible — keep them closed until you need them.',
+      targetId: 'demo-subject-overview',
+    },
+    {
+      id: 'classrooms',
+      title: '🏫 Navigate Your Classrooms',
+      body: 'Each classroom card shows enrolment and a risk badge. Click any card to open the full class dashboard with charts, AI insights, and a sortable student roster.',
+      targetId: 'demo-classroom-cards',
+    },
+    {
+      id: 'premium',
+      title: '✦ Unlock the Full Platform',
+      body: 'PDF reports, AI insights, unlimited classrooms, teacher notes, and goal setting are all available on the Premium plan. Upgrade any time from the banner above.',
+      targetId: null,
+    },
+  ];
+
   const TourOverlay = () => {
-    if (!isDemoMode || tourStep < 0 || tourStep >= TOUR_STEPS.length) return null;
-    const step = TOUR_STEPS[tourStep];
-    const total = TOUR_STEPS.length;
+    // Works for both demo tour and first-login onboarding
+    const steps = isOnboarding ? ONBOARDING_STEPS : TOUR_STEPS;
+    const currentStep = isOnboarding ? onboardingStep : tourStep;
+    const setStep = isOnboarding ? setOnboardingStep : setTourStep;
+
+    const isActive = isOnboarding
+      ? (onboardingStep >= 0 && onboardingStep < ONBOARDING_STEPS.length)
+      : (isDemoMode && tourStep >= 0 && tourStep < TOUR_STEPS.length);
+
+    if (!isActive) return null;
+
+    const step = steps[currentStep];
+    const total = steps.length;
+
+    const handleDone = () => {
+      if (isOnboarding) {
+        // Mark as onboarded so it never shows again for this user
+        if (user) localStorage.setItem(`gradelens_onboarded_${user.name}`, 'true');
+        setIsOnboarding(false);
+        setOnboardingStep(-1);
+      } else {
+        setTourStep(-1);
+      }
+    };
 
     return (
       <>
@@ -894,17 +965,17 @@ export default function App() {
             <div className="h-1 bg-gray-100">
               <div
                 className="h-1 bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-500"
-                style={{ width: `${((tourStep + 1) / total) * 100}%` }}
+                style={{ width: `${((currentStep + 1) / total) * 100}%` }}
               />
             </div>
             <div className="p-6">
               {/* Step counter */}
               <div className="flex items-center justify-between mb-3">
                 <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                  Step {tourStep + 1} of {total}
+                  Step {currentStep + 1} of {total}
                 </span>
                 <button
-                  onClick={() => setTourStep(-1)}
+                  onClick={handleDone}
                   className="text-gray-300 hover:text-gray-600 text-lg font-bold leading-none transition-colors"
                 >✕</button>
               </div>
@@ -913,31 +984,31 @@ export default function App() {
               {/* Nav buttons */}
               <div className="flex items-center justify-between gap-3">
                 <button
-                  onClick={() => setTourStep(s => s - 1)}
-                  disabled={tourStep === 0}
+                  onClick={() => setStep(s => s - 1)}
+                  disabled={currentStep === 0}
                   className="px-5 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed font-black text-gray-600 text-xs uppercase tracking-widest transition-all"
                 >
                   ← Prev
                 </button>
                 <div className="flex gap-1.5">
-                  {TOUR_STEPS.map((_, i) => (
+                  {steps.map((_, i) => (
                     <button
                       key={i}
-                      onClick={() => setTourStep(i)}
-                      className={`w-2 h-2 rounded-full transition-all ${i === tourStep ? 'bg-blue-500 w-5' : 'bg-gray-200 hover:bg-gray-400'}`}
+                      onClick={() => setStep(i)}
+                      className={`w-2 h-2 rounded-full transition-all ${i === currentStep ? 'bg-blue-500 w-5' : 'bg-gray-200 hover:bg-gray-400'}`}
                     />
                   ))}
                 </div>
-                {tourStep < total - 1 ? (
+                {currentStep < total - 1 ? (
                   <button
-                    onClick={() => setTourStep(s => s + 1)}
+                    onClick={() => setStep(s => s + 1)}
                     className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-widest transition-all shadow-sm shadow-blue-200"
                   >
                     Next →
                   </button>
                 ) : (
                   <button
-                    onClick={() => setTourStep(-1)}
+                    onClick={handleDone}
                     className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white font-black text-xs uppercase tracking-widest transition-all shadow-sm"
                   >
                     Done ✓
@@ -994,9 +1065,14 @@ export default function App() {
 
   // ── PAYWALL MODAL ─────────────────────────────────────────────────────────────
   const paywallCopy = {
-    pdf:     { icon: '📄', title: 'PDF Reports are Premium',      desc: 'Generate beautiful, parent-ready PDF progress reports for every student with one click.' },
-    ai:      { icon: '🧠', title: 'AI Insights are Premium',      desc: 'Unlock algorithmic class insights, trend detection, and automated risk commentary.' },
-    classes: { icon: '🏫', title: 'Unlimited Classes are Premium', desc: `Free accounts are limited to ${FREE_CLASS_LIMIT} classrooms. Go Premium to import as many subjects as you need.` },
+    pdf:     { icon: '📄', title: 'PDF Reports are Premium',        desc: 'Generate beautiful, parent-ready PDF progress reports for every student with one click.' },
+    ai:      { icon: '🧠', title: 'AI Insights are Premium',        desc: 'Unlock algorithmic class insights, trend detection, and automated risk commentary.' },
+    classes: { icon: '🏫', title: 'Unlimited Classes are Premium',  desc: `Free accounts are limited to ${FREE_CLASS_LIMIT} classrooms. Go Premium to import as many subjects as you need.` },
+    sort:    { icon: '↕️', title: 'Advanced Sorting is Premium',    desc: 'Sort your student roster by mean score, trajectory, relative standing, and risk level to instantly prioritise interventions.' },
+    notes:   { icon: '📝', title: 'Teacher Notes are Premium',      desc: 'Add private notes to any student profile — visible only to you, saved securely to your account.' },
+    goals:   { icon: '🎯', title: 'Goal Setting is Premium',        desc: 'Set target scores for individual students and track their progress with a live visual indicator.' },
+    charts:  { icon: '📈', title: 'Detailed Charts are Premium',    desc: 'Unlock percentile rank over time, moving average trends, and subject-by-subject performance breakdowns.' },
+    export:  { icon: '✉️', title: 'Parent Message Export is Premium', desc: 'Auto-generate personalised parent messages for every student and download them as a ready-to-send CSV.' },
   };
 
   const PaywallModal = () => {
@@ -1087,11 +1163,15 @@ export default function App() {
                 [`Up to ${FREE_CLASS_LIMIT} classrooms`, true],
                 ['Basic student roster & scores', true],
                 ['Performance trend charts', true],
+                ['Subject overview & at-risk panel', true],
                 ['CSV data export', true],
+                ['Advanced sorting & filtering', false],
                 ['AI-powered class insights', false],
                 ['PDF report generation', false],
+                ['Teacher notes & goal setting', false],
+                ['Detailed charts & percentile rank', false],
+                ['Parent message CSV export', false],
                 ['Unlimited classrooms', false],
-                ['Priority support', false],
               ].map(([label, included]) => (
                 <div key={label} className="flex items-center gap-3 text-sm font-medium">
                   <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${included ? 'bg-emerald-100' : 'bg-gray-100'}`}>
@@ -1264,6 +1344,8 @@ export default function App() {
         if (response.ok) {
           // Success! The database saved them. Log them in.
           setUser({ name: data.user.username, role: 'Teacher', id: data.user.id, isPremium: false });
+          // New account — always show onboarding
+          setTimeout(() => { setIsOnboarding(true); setOnboardingStep(0); }, 800);
         } else {
           // Server caught an error (like username already taken)
           setError(data.error || 'Failed to create account.');
@@ -1350,7 +1432,11 @@ export default function App() {
 
         if (response.ok) {
           // Success! Credentials match.
-          setUser({ name: data.user.username, role: 'Teacher', id: data.user.id, isPremium: data.user.isPremium ?? false });
+          setUser({ name: data.user.username, role: 'Teacher', id: data.user.id, isPremium: data.user.isPremium ?? false, email: data.user.email || null });
+          // Trigger onboarding if this user hasn't seen it before
+          if (!localStorage.getItem(`gradelens_onboarded_${data.user.username}`)) {
+            setTimeout(() => { setIsOnboarding(true); setOnboardingStep(0); }, 800);
+          }
         } else {
           // Wrong password or username
           setError(data.error || 'Invalid login details.');
@@ -1405,7 +1491,8 @@ export default function App() {
   const TeacherHome = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [showImport, setShowImport] = useState(false);
-    const [showAtRisk, setShowAtRisk] = useState(false); // collapsed by default
+    const [showAtRisk, setShowAtRisk] = useState(false);     // collapsed by default
+    const [showSubjects, setShowSubjects] = useState(false); // collapsed by default
     const filteredClasses = classes.filter(cls => cls.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
     // Compute summary stats for the header row
@@ -1529,51 +1616,75 @@ export default function App() {
           )}
         </div>
 
-        {/* ── SUBJECT COMPARISON + AT-RISK SIDE BY SIDE ── */}
+        {/* ── SUBJECT OVERVIEW + AT-RISK STACKED ── */}
         {classes.length > 0 && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <div className="space-y-3">
 
-            {/* Left: Subject overview */}
-            <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-50">
-                <h2 className="font-black text-gray-900 text-sm">Subject Overview</h2>
-                <p className="text-gray-400 text-xs font-medium mt-0.5">At-risk students per class</p>
-              </div>
-              <div className="divide-y divide-gray-50">
-                {classes.map(cls => {
-                  const enrolled = students.filter(s => s.classId === cls.id).length;
-                  const atRiskCount = atRiskAll.filter(s => s.classId === cls.id).length;
-                  const highCount = atRiskAll.filter(s => s.classId === cls.id && s.riskLevel === 'High').length;
-                  return (
-                    <div key={cls.id}
-                      className="px-6 py-3.5 flex items-center justify-between gap-4 hover:bg-gray-50/50 transition-colors cursor-pointer group"
-                      onClick={() => navigateTo('class', cls.id)}>
-                      <span className="font-black text-gray-800 text-sm truncate group-hover:text-blue-600 transition-colors">{cls.name}</span>
-                      <div className="flex items-center gap-3 shrink-0">
-                        {atRiskCount > 0 ? (
-                          <>
-                            <span className="text-xs font-bold text-gray-400">{atRiskCount}/{enrolled} at risk</span>
-                            {highCount > 0 && (
-                              <span className="text-[10px] font-black text-red-500 bg-red-50 border border-red-100 px-2 py-1 rounded-lg">
-                                {highCount} high
-                              </span>
-                            )}
-                          </>
-                        ) : (
-                          <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-1 rounded-lg">
-                            {enrolled} enrolled · all clear
-                          </span>
-                        )}
-                        <ChevronRight size={13} className="text-gray-300 group-hover:text-blue-400 transition-colors"/>
+            {/* Subject Overview — toggleable */}
+            <div id="demo-subject-overview" className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+              <button
+                onClick={() => setShowSubjects(v => !v)}
+                className={`w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50/50 transition-colors ${showSubjects ? 'border-b border-gray-50' : ''}`}
+              >
+                <div className="text-left">
+                  <h2 className="font-black text-gray-900 text-sm">Subject Overview</h2>
+                  <p className="text-gray-400 text-xs font-medium mt-0.5">Risk distribution per class</p>
+                </div>
+                <ChevronRight size={16} className={`text-gray-300 transition-transform duration-200 ${showSubjects ? 'rotate-90' : ''}`}/>
+              </button>
+
+              {showSubjects && (
+                <div className="divide-y divide-gray-50">
+                  {classes.map(cls => {
+                    const enrolled = students.filter(s => s.classId === cls.id).length;
+                    const highCount   = atRiskAll.filter(s => s.classId === cls.id && s.riskLevel === 'High').length;
+                    const medCount    = atRiskAll.filter(s => s.classId === cls.id && s.riskLevel === 'Medium').length;
+                    const lowCount    = Math.max(0, enrolled - highCount - medCount);
+                    // Segment widths as % of enrolled
+                    const highPct  = enrolled ? (highCount  / enrolled) * 100 : 0;
+                    const medPct   = enrolled ? (medCount   / enrolled) * 100 : 0;
+                    const lowPct   = enrolled ? (lowCount   / enrolled) * 100 : 0;
+                    return (
+                      <div key={cls.id}
+                        className="px-6 py-4 hover:bg-gray-50/50 transition-colors cursor-pointer group"
+                        onClick={() => navigateTo('class', cls.id)}>
+                        {/* Row 1: name + ratio */}
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-black text-gray-800 text-sm truncate group-hover:text-blue-600 transition-colors">{cls.name}</span>
+                          <div className="flex items-center gap-2 shrink-0 ml-4">
+                            {highCount > 0  && <span className="text-[10px] font-black text-red-500   bg-red-50   border border-red-100   px-2 py-0.5 rounded-md">{highCount} high</span>}
+                            {medCount  > 0  && <span className="text-[10px] font-black text-orange-500 bg-orange-50 border border-orange-100 px-2 py-0.5 rounded-md">{medCount} med</span>}
+                            <span className="text-[10px] font-bold text-gray-400">{enrolled} enrolled</span>
+                            <ChevronRight size={12} className="text-gray-300 group-hover:text-blue-400 transition-colors"/>
+                          </div>
+                        </div>
+                        {/* Row 2: segmented bar */}
+                        <div className="flex h-2 rounded-full overflow-hidden bg-gray-100 gap-px">
+                          {highPct > 0 && (
+                            <div className="bg-red-400 rounded-l-full transition-all duration-500" style={{width: `${highPct}%`}} title={`${highCount} high risk`}/>
+                          )}
+                          {medPct > 0 && (
+                            <div className={`bg-orange-300 transition-all duration-500 ${highPct === 0 ? 'rounded-l-full' : ''} ${lowPct === 0 ? 'rounded-r-full' : ''}`} style={{width: `${medPct}%`}} title={`${medCount} medium risk`}/>
+                          )}
+                          {lowPct > 0 && (
+                            <div className={`bg-emerald-300 rounded-r-full transition-all duration-500 ${highPct === 0 && medPct === 0 ? 'rounded-l-full' : ''}`} style={{width: `${lowPct}%`}} title={`${lowCount} on track`}/>
+                          )}
+                        </div>
+                        {/* Row 3: legend */}
+                        <div className="flex items-center gap-4 mt-1.5">
+                          {highCount > 0 && <span className="flex items-center gap-1 text-[10px] font-bold text-gray-400"><span className="w-2 h-2 rounded-full bg-red-400 inline-block"/>High</span>}
+                          {medCount  > 0 && <span className="flex items-center gap-1 text-[10px] font-bold text-gray-400"><span className="w-2 h-2 rounded-full bg-orange-300 inline-block"/>Medium</span>}
+                          {lowCount  > 0 && <span className="flex items-center gap-1 text-[10px] font-bold text-gray-400"><span className="w-2 h-2 rounded-full bg-emerald-300 inline-block"/>On Track</span>}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
-            {/* Right: Students needing attention — toggleable */}
-            <div className={`bg-white rounded-3xl border shadow-sm overflow-hidden ${atRiskAll.length > 0 ? 'border-red-100' : 'border-gray-100'}`}>
+            {/* Students needing attention — toggleable */}
+            <div id="demo-atrisk-panel" className={`bg-white rounded-3xl border shadow-sm overflow-hidden ${atRiskAll.length > 0 ? 'border-red-100' : 'border-gray-100'}`}>
               {/* Header — always visible, click to toggle */}
               <button
                 onClick={() => setShowAtRisk(v => !v)}
@@ -1939,8 +2050,9 @@ export default function App() {
                   link.click();
                 }}
                 className="flex items-center gap-2 px-5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-sm border border-emerald-100"
+                onClick={e => { if (!isPremium) { e.stopPropagation(); e.preventDefault(); requirePremium('export', () => {}); } }}
               >
-                <Download size={14} /> Export Parent Messages (CSV)
+                <Download size={14} /> {isPremium ? 'Export Parent Messages (CSV)' : '🔒 Parent Messages (Premium)'}
               </button>
             )}
           </div>
@@ -1956,7 +2068,7 @@ export default function App() {
                     return (
                       <th
                         className={`px-8 py-4 cursor-pointer select-none whitespace-nowrap hover:text-blue-500 transition-colors ${active ? 'text-blue-500' : ''} ${align === 'right' ? 'text-right' : ''}`}
-                        onClick={() => !isGeneratingPDF && handleSort(col)}
+                        onClick={() => !isGeneratingPDF && requirePremium('sort', () => handleSort(col))}
                       >
                         {label}<span className={`ml-1 ${active ? 'text-blue-400' : 'text-gray-300'}`}>{arrow}</span>
                       </th>
@@ -2265,7 +2377,7 @@ export default function App() {
         </div>
 
         {/* ── DETAILED CHARTS ── */}
-        {!isGeneratingPDF && (
+        {!isGeneratingPDF && isPremium && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full mt-2">
 
             {/* Percentile Rank Over Time */}
@@ -2317,12 +2429,36 @@ export default function App() {
           </div>
         )}
 
+        {/* ── DETAILED CHARTS LOCKED PLACEHOLDER ── */}
+        {!isGeneratingPDF && !isPremium && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full mt-2">
+            {['Percentile Rank Over Time', 'Subject Breakdown'].map(label => (
+              <div key={label} className="relative bg-white p-8 rounded-[2rem] border border-gray-100 shadow-sm h-44 flex flex-col items-center justify-center overflow-hidden">
+                <div className="absolute inset-0 bg-white/80 backdrop-blur-[2px] flex flex-col items-center justify-center z-10 rounded-[2rem]">
+                  <div className="text-2xl mb-1.5">🔒</div>
+                  <p className="font-black text-gray-700 text-sm mb-1">{label}</p>
+                  <button onClick={() => setShowPaywall('charts')} className="text-xs font-black text-amber-600 uppercase tracking-widest hover:text-amber-800 transition-colors mt-1">
+                    Upgrade to unlock →
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* ── NOTES & GOALS ── */}
         {!isGeneratingPDF && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full mt-2">
 
             {/* Teacher Notes */}
-            <div className="bg-white p-8 rounded-[2rem] border border-gray-100 shadow-sm">
+            <div className={`bg-white p-8 rounded-[2rem] border border-gray-100 shadow-sm relative overflow-hidden`}>
+              {!isPremium && (
+                <div className="absolute inset-0 bg-white/85 backdrop-blur-[2px] flex flex-col items-center justify-center z-10 rounded-[2rem]">
+                  <div className="text-2xl mb-1.5">🔒</div>
+                  <p className="font-black text-gray-700 text-sm mb-1">Teacher Notes</p>
+                  <button onClick={() => setShowPaywall('notes')} className="text-xs font-black text-amber-600 uppercase tracking-widest hover:text-amber-800 transition-colors">Upgrade to unlock →</button>
+                </div>
+              )}
               <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                 <FileText className="h-4 w-4 text-blue-500" /> Teacher Notes
               </h3>
@@ -2347,7 +2483,14 @@ export default function App() {
             </div>
 
             {/* Goal Setting */}
-            <div className="bg-white p-8 rounded-[2rem] border border-gray-100 shadow-sm">
+            <div className={`bg-white p-8 rounded-[2rem] border border-gray-100 shadow-sm relative overflow-hidden`}>
+              {!isPremium && (
+                <div className="absolute inset-0 bg-white/85 backdrop-blur-[2px] flex flex-col items-center justify-center z-10 rounded-[2rem]">
+                  <div className="text-2xl mb-1.5">🔒</div>
+                  <p className="font-black text-gray-700 text-sm mb-1">Goal Setting</p>
+                  <button onClick={() => setShowPaywall('goals')} className="text-xs font-black text-amber-600 uppercase tracking-widest hover:text-amber-800 transition-colors">Upgrade to unlock →</button>
+                </div>
+              )}
               <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                 <Target className="h-4 w-4 text-purple-500" /> Score Goal
               </h3>
