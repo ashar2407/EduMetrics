@@ -1404,7 +1404,32 @@ export default function App() {
 
   const TeacherHome = () => {
     const [searchQuery, setSearchQuery] = useState('');
+    const [showImport, setShowImport] = useState(false);
+    const [showAtRisk, setShowAtRisk] = useState(false); // collapsed by default
     const filteredClasses = classes.filter(cls => cls.name.toLowerCase().includes(searchQuery.toLowerCase()));
+
+    // Compute summary stats for the header row
+    const totalStudents = students.length;
+    const atRiskAll = classes.flatMap(cls => {
+      const classStudents = students.filter(s => s.classId === cls.id);
+      return classStudents.flatMap(stu => {
+        const sScores = scores.filter(sc => sc.studentId === stu.id);
+        if (sScores.length < 2) return [];
+        const vals = sScores.map(s => s.score);
+        const mean = vals.reduce((a,b)=>a+b,0)/vals.length;
+        const last = vals[vals.length-1];
+        const n = vals.length;
+        let sumX=0,sumY=0,sumXY=0,sumXX=0;
+        vals.forEach((v,i)=>{sumX+=i;sumY+=v;sumXY+=i*v;sumXX+=i*i;});
+        const slope = n>1?(n*sumXY-sumX*sumY)/(n*sumXX-sumX*sumX):0;
+        let riskScore=0;
+        if(slope<-0.5) riskScore+=Math.abs(slope)*2;
+        if(last<mean*0.9) riskScore+=(mean-last)*0.5;
+        const riskLevel=riskScore>15?'High':riskScore>7?'Medium':null;
+        if(!riskLevel) return [];
+        return [{id:stu.id,name:stu.name,subject:cls.name,classId:cls.id,mean,last,slope,riskLevel}];
+      });
+    }).sort((a,b)=>(b.riskLevel==='High'?1:0)-(a.riskLevel==='High'?1:0)||a.mean-b.mean);
 
     return (
       <div className="space-y-6">
@@ -1444,6 +1469,7 @@ export default function App() {
           </div>
         )}
 
+        {/* ── IMPORT PANEL ── */}
         <div id="demo-import-panel" className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-5 gap-4">
             <h2 className="text-lg font-bold text-gray-800 flex items-center">
@@ -1453,7 +1479,6 @@ export default function App() {
               <Wand2 size={14} className="mr-2"/> {isDemoMode ? 'Demo Mode Active' : 'Zero-Prep Smart Engine Active'}
             </div>
           </div>
-
           {isDemoMode ? (
             <div className="text-center py-4">
               <p className="text-sm text-gray-500 font-medium mb-5">
@@ -1461,17 +1486,10 @@ export default function App() {
                 In the full app, you can upload any Excel or CSV grading sheet and the AI parses it instantly.
               </p>
               <div className="flex flex-wrap gap-3 justify-center">
-                <button
-                  onClick={() => { setTourStep(0); }}
-                  className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm transition-all shadow-sm"
-                >
+                <button onClick={() => setTourStep(0)} className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm transition-all shadow-sm">
                   ▶ Restart Guided Tour
                 </button>
-                <button
-                  onClick={downloadCSV}
-                  disabled={scores.length === 0}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-gray-900 hover:bg-black disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-xl font-bold transition-colors text-sm shadow-sm"
-                >
+                <button onClick={downloadCSV} disabled={scores.length === 0} className="flex items-center gap-2 px-5 py-2.5 bg-gray-900 hover:bg-black disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-xl font-bold transition-colors text-sm shadow-sm">
                   <Download size={16} /> Export Demo CSV
                 </button>
               </div>
@@ -1511,141 +1529,115 @@ export default function App() {
           )}
         </div>
 
-        {/* ── CLASS COMPARISON PANEL ── */}
-        {classes.length >= 2 && (
-          <div className="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm mt-4">
-            <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6">Subject Performance Comparison</h2>
-            <div className="space-y-4">
-              {classes.map(cls => {
-                const classStudents = students.filter(s => s.classId === cls.id);
-                const classScores = scores.filter(sc => classStudents.some(st => st.id === sc.studentId));
-                const mean = classScores.length ? classScores.reduce((a, b) => a + b.score, 0) / classScores.length : 0;
-                const highRisk = classStudents.filter(st => {
-                  const sScores = scores.filter(sc => sc.studentId === st.id).map(sc => sc.score);
-                  if (!sScores.length) return false;
-                  const avg = sScores.reduce((a,b) => a+b,0)/sScores.length;
-                  return avg < 55;
-                }).length;
-                const allMeans = classes.map(c => {
-                  const cs = students.filter(s => s.classId === c.id);
-                  const csc = scores.filter(sc => cs.some(st => st.id === sc.studentId));
-                  return csc.length ? csc.reduce((a, b) => a + b.score, 0) / csc.length : 0;
-                });
-                const maxMean = Math.max(...allMeans, 1);
-                const barColor = mean >= 75 ? 'bg-emerald-500' : mean >= 55 ? 'bg-blue-500' : 'bg-orange-500';
-                return (
-                  <div key={cls.id} className="flex items-center gap-4 group cursor-pointer" onClick={() => navigateTo('class', cls.id)}>
-                    <div className="w-40 text-xs font-black text-gray-700 truncate shrink-0 group-hover:text-blue-600 transition-colors">{cls.name}</div>
-                    <div className="flex-1 h-7 bg-gray-100 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full ${barColor} rounded-full transition-all duration-700 flex items-center justify-end pr-3`}
-                        style={{ width: `${(mean / maxMean) * 100}%` }}
-                      >
-                        <span className="text-white text-[10px] font-black">{mean.toFixed(1)}%</span>
+        {/* ── SUBJECT COMPARISON + AT-RISK SIDE BY SIDE ── */}
+        {classes.length > 0 && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+
+            {/* Left: Subject overview */}
+            <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-50">
+                <h2 className="font-black text-gray-900 text-sm">Subject Overview</h2>
+                <p className="text-gray-400 text-xs font-medium mt-0.5">At-risk students per class</p>
+              </div>
+              <div className="divide-y divide-gray-50">
+                {classes.map(cls => {
+                  const enrolled = students.filter(s => s.classId === cls.id).length;
+                  const atRiskCount = atRiskAll.filter(s => s.classId === cls.id).length;
+                  const highCount = atRiskAll.filter(s => s.classId === cls.id && s.riskLevel === 'High').length;
+                  return (
+                    <div key={cls.id}
+                      className="px-6 py-3.5 flex items-center justify-between gap-4 hover:bg-gray-50/50 transition-colors cursor-pointer group"
+                      onClick={() => navigateTo('class', cls.id)}>
+                      <span className="font-black text-gray-800 text-sm truncate group-hover:text-blue-600 transition-colors">{cls.name}</span>
+                      <div className="flex items-center gap-3 shrink-0">
+                        {atRiskCount > 0 ? (
+                          <>
+                            <span className="text-xs font-bold text-gray-400">{atRiskCount}/{enrolled} at risk</span>
+                            {highCount > 0 && (
+                              <span className="text-[10px] font-black text-red-500 bg-red-50 border border-red-100 px-2 py-1 rounded-lg">
+                                {highCount} high
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-1 rounded-lg">
+                            {enrolled} enrolled · all clear
+                          </span>
+                        )}
+                        <ChevronRight size={13} className="text-gray-300 group-hover:text-blue-400 transition-colors"/>
                       </div>
                     </div>
-                    <div className="w-24 text-right shrink-0">
-                      {highRisk > 0 ? (
-                        <span className="text-[10px] font-black text-red-500 bg-red-50 border border-red-100 px-2 py-1 rounded-lg">
-                          {highRisk} at risk
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-1 rounded-lg">
-                          On track
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-6">Click any bar to open that classroom</p>
+
+            {/* Right: Students needing attention — toggleable */}
+            <div className={`bg-white rounded-3xl border shadow-sm overflow-hidden ${atRiskAll.length > 0 ? 'border-red-100' : 'border-gray-100'}`}>
+              {/* Header — always visible, click to toggle */}
+              <button
+                onClick={() => setShowAtRisk(v => !v)}
+                className={`w-full px-6 py-4 flex items-center justify-between transition-colors hover:bg-gray-50/50 ${showAtRisk && atRiskAll.length > 0 ? 'border-b border-red-50' : ''}`}
+              >
+                <div className="text-left">
+                  <h2 className="font-black text-gray-900 text-sm">Students Needing Attention</h2>
+                  <p className="text-gray-400 text-xs font-medium mt-0.5">
+                    {atRiskAll.length > 0
+                      ? `${atRiskAll.length}/${totalStudents} flagged · ${atRiskAll.filter(s=>s.riskLevel==='High').length} high priority`
+                      : 'No students flagged — all clear'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {atRiskAll.length > 0 && (
+                    <div className="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center">
+                      <AlertTriangle className="h-3.5 w-3.5 text-red-500"/>
+                    </div>
+                  )}
+                  <ChevronRight size={16} className={`text-gray-300 transition-transform duration-200 ${showAtRisk ? 'rotate-90' : ''}`}/>
+                </div>
+              </button>
+
+              {/* Body — only shown when open */}
+              {showAtRisk && (
+                atRiskAll.length > 0 ? (
+                  <div className="divide-y divide-gray-50">
+                    {atRiskAll.slice(0, 5).map(s => (
+                      <div key={s.id} className="px-6 py-3 flex items-center gap-3 hover:bg-red-50/20 transition-colors">
+                        <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${s.riskLevel==='High'?'bg-red-500':'bg-orange-400'}`}/>
+                        <div className="flex-1 min-w-0">
+                          <span className="font-black text-gray-900 text-sm truncate block">{s.name}</span>
+                          <span className="text-[11px] text-gray-400 font-medium">{s.subject}</span>
+                        </div>
+                        <span className={`text-xs font-bold flex items-center gap-1 shrink-0 ${s.slope>0?'text-emerald-600':'text-red-500'}`}>
+                          {s.slope>0?<TrendingUp size={11}/>:<TrendingDown size={11}/>}
+                          {s.slope>0?'+':''}{s.slope.toFixed(1)}
+                        </span>
+                        <button onClick={()=>navigateTo('student',s.id)}
+                          className="text-[10px] font-black text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all shrink-0">
+                          View
+                        </button>
+                      </div>
+                    ))}
+                    {atRiskAll.length > 5 && (
+                      <div className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                        +{atRiskAll.length-5} more — open a classroom to see all
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="px-6 py-8 text-center border-t border-gray-50">
+                    <p className="text-2xl mb-1.5">✓</p>
+                    <p className="font-black text-emerald-700 text-sm">All students on track</p>
+                    <p className="text-gray-400 text-xs font-medium mt-1">No risk flags across any of your classes</p>
+                  </div>
+                )
+              )}
+            </div>
+
           </div>
         )}
 
-        {/* ── AT-RISK STUDENTS PANEL (Dashboard) ── */}
-        {(() => {
-          const atRiskAll = classes.flatMap(cls => {
-            const classStudents = students.filter(s => s.classId === cls.id);
-            return classStudents.flatMap(stu => {
-              const sScores = scores.filter(sc => sc.studentId === stu.id);
-              if (sScores.length < 2) return [];
-              const vals = sScores.map(s => s.score);
-              const mean = vals.reduce((a,b)=>a+b,0)/vals.length;
-              const last = vals[vals.length-1];
-              // slope via simple rise/run
-              const n = vals.length;
-              let sumX=0,sumY=0,sumXY=0,sumXX=0;
-              vals.forEach((v,i)=>{sumX+=i;sumY+=v;sumXY+=i*v;sumXX+=i*i;});
-              const slope = n>1 ? (n*sumXY-sumX*sumY)/(n*sumXX-sumX*sumX) : 0;
-              // risk logic mirrors classData
-              let riskScore = 0;
-              if (slope < -0.5) riskScore += Math.abs(slope)*2;
-              if (last < mean*0.9) riskScore += (mean-last)*0.5;
-              const riskLevel = riskScore > 15 ? 'High' : riskScore > 7 ? 'Medium' : null;
-              if (!riskLevel) return [];
-              return [{ id: stu.id, name: stu.name, subject: cls.name, classId: cls.id, mean, last, slope, riskLevel }];
-            });
-          }).sort((a,b) => (b.riskLevel==='High'?1:0)-(a.riskLevel==='High'?1:0) || a.mean-b.mean);
-
-          if (!atRiskAll.length || classes.length === 0) return null;
-
-          return (
-            <div className="bg-white rounded-3xl border border-red-100 shadow-sm mt-4 overflow-hidden">
-              <div className="px-8 py-5 border-b border-red-50 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-red-50 flex items-center justify-center">
-                    <AlertTriangle className="h-4 w-4 text-red-500" />
-                  </div>
-                  <div>
-                    <h2 className="font-black text-gray-900 text-sm">Students Needing Attention</h2>
-                    <p className="text-gray-400 text-xs font-medium">{atRiskAll.length} student{atRiskAll.length!==1?'s':''} flagged across all classes</p>
-                  </div>
-                </div>
-                <span className="text-[10px] font-black text-red-500 bg-red-50 border border-red-100 px-3 py-1.5 rounded-xl uppercase tracking-widest">
-                  {atRiskAll.filter(s=>s.riskLevel==='High').length} High Risk
-                </span>
-              </div>
-              <div className="divide-y divide-gray-50">
-                {atRiskAll.slice(0, 6).map(s => (
-                  <div key={s.id} className="px-8 py-4 flex items-center gap-4 hover:bg-red-50/30 transition-colors group">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="font-black text-gray-900 text-sm truncate">{s.name}</span>
-                        <span className="text-[10px] text-gray-400 font-medium shrink-0">· {s.subject}</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className={`text-[9px] font-black px-2 py-0.5 rounded-lg border uppercase tracking-widest ${s.riskLevel==='High' ? 'text-red-600 bg-red-50 border-red-200' : 'text-orange-600 bg-orange-50 border-orange-200'}`}>
-                          {s.riskLevel} Risk
-                        </span>
-                        <span className="text-xs font-bold text-gray-500">Avg: {s.mean.toFixed(1)}%</span>
-                        <span className={`text-xs font-bold flex items-center gap-1 ${s.slope > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                          {s.slope > 0 ? <TrendingUp size={11}/> : <TrendingDown size={11}/>}
-                          {s.slope > 0 ? '+' : ''}{s.slope.toFixed(1)} pts/test
-                        </span>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => navigateTo('student', s.id)}
-                      className="shrink-0 text-[10px] font-black text-blue-600 bg-blue-50 px-4 py-2 rounded-xl uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all"
-                    >
-                      View →
-                    </button>
-                  </div>
-                ))}
-                {atRiskAll.length > 6 && (
-                  <div className="px-8 py-3 text-center">
-                    <span className="text-xs font-black text-gray-400 uppercase tracking-widest">
-                      +{atRiskAll.length-6} more — open a classroom to see all
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })()}
-
-        <div className="flex justify-between items-center mb-4 mt-10">
+        <div className="flex justify-between items-center mb-4 mt-6">
           <h2 className="text-2xl font-black text-gray-800 tracking-tight">Active Classrooms ({filteredClasses.length})</h2>
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -1659,7 +1651,7 @@ export default function App() {
           {classes.length === 0 ? (
             <div className="col-span-full py-20 text-center bg-white rounded-3xl border border-dashed border-gray-300">
               <div className="mx-auto w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mb-4">
-                 <UploadCloud className="h-8 w-8 text-blue-500" />
+                <UploadCloud className="h-8 w-8 text-blue-500" />
               </div>
               <h3 className="text-xl font-bold text-gray-800 mb-2">No Class Data Found</h3>
               <p className="text-gray-500 font-medium">Upload any Excel or CSV grading sheet above to generate predictive analytics.</p>
@@ -1668,6 +1660,7 @@ export default function App() {
             filteredClasses.map((cls, idx) => {
               const isLocked = !isPremium && idx >= FREE_CLASS_LIMIT;
               const classStudentCount = students.filter(s => s.classId === cls.id).length;
+              const classAtRisk = atRiskAll.filter(s => s.classId === cls.id).length;
               return (
                 <div key={cls.id}
                   className={`bg-white p-8 rounded-3xl shadow-sm border transition-all cursor-pointer group relative overflow-hidden
@@ -1689,8 +1682,19 @@ export default function App() {
                       <BarChart3 size={20} />
                     </div>
                   </div>
-                  <div className="flex items-center text-gray-500 mb-6 font-medium">
-                     <Users size={16} className="mr-2"/> {classStudentCount} Students Enrolled
+                  <div className="flex items-center justify-between mb-6">
+                    <span className="text-gray-500 font-medium flex items-center">
+                      <Users size={16} className="mr-2"/> {classStudentCount} Students Enrolled
+                    </span>
+                    {classAtRisk > 0 ? (
+                      <span className="text-[10px] font-black text-red-500 bg-red-50 border border-red-100 px-2.5 py-1 rounded-lg">
+                        {classAtRisk} at risk
+                      </span>
+                    ) : classStudentCount > 0 ? (
+                      <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-lg">
+                        All on track
+                      </span>
+                    ) : null}
                   </div>
                   <button className="flex items-center text-blue-600 font-bold hover:text-blue-800 uppercase tracking-widest text-xs">
                     View Classroom Analytics <ChevronRight className="h-4 w-4 ml-1 group-hover:translate-x-1 transition-transform" />
@@ -1704,6 +1708,7 @@ export default function App() {
             </div>
           )}
         </div>
+
       </div>
     );
   };
