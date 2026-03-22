@@ -1563,6 +1563,88 @@ export default function App() {
           </div>
         )}
 
+        {/* ── AT-RISK STUDENTS PANEL (Dashboard) ── */}
+        {(() => {
+          const atRiskAll = classes.flatMap(cls => {
+            const classStudents = students.filter(s => s.classId === cls.id);
+            return classStudents.flatMap(stu => {
+              const sScores = scores.filter(sc => sc.studentId === stu.id);
+              if (sScores.length < 2) return [];
+              const vals = sScores.map(s => s.score);
+              const mean = vals.reduce((a,b)=>a+b,0)/vals.length;
+              const last = vals[vals.length-1];
+              // slope via simple rise/run
+              const n = vals.length;
+              let sumX=0,sumY=0,sumXY=0,sumXX=0;
+              vals.forEach((v,i)=>{sumX+=i;sumY+=v;sumXY+=i*v;sumXX+=i*i;});
+              const slope = n>1 ? (n*sumXY-sumX*sumY)/(n*sumXX-sumX*sumX) : 0;
+              // risk logic mirrors classData
+              let riskScore = 0;
+              if (slope < -0.5) riskScore += Math.abs(slope)*2;
+              if (last < mean*0.9) riskScore += (mean-last)*0.5;
+              const riskLevel = riskScore > 15 ? 'High' : riskScore > 7 ? 'Medium' : null;
+              if (!riskLevel) return [];
+              return [{ id: stu.id, name: stu.name, subject: cls.name, classId: cls.id, mean, last, slope, riskLevel }];
+            });
+          }).sort((a,b) => (b.riskLevel==='High'?1:0)-(a.riskLevel==='High'?1:0) || a.mean-b.mean);
+
+          if (!atRiskAll.length || classes.length === 0) return null;
+
+          return (
+            <div className="bg-white rounded-3xl border border-red-100 shadow-sm mt-4 overflow-hidden">
+              <div className="px-8 py-5 border-b border-red-50 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-red-50 flex items-center justify-center">
+                    <AlertTriangle className="h-4 w-4 text-red-500" />
+                  </div>
+                  <div>
+                    <h2 className="font-black text-gray-900 text-sm">Students Needing Attention</h2>
+                    <p className="text-gray-400 text-xs font-medium">{atRiskAll.length} student{atRiskAll.length!==1?'s':''} flagged across all classes</p>
+                  </div>
+                </div>
+                <span className="text-[10px] font-black text-red-500 bg-red-50 border border-red-100 px-3 py-1.5 rounded-xl uppercase tracking-widest">
+                  {atRiskAll.filter(s=>s.riskLevel==='High').length} High Risk
+                </span>
+              </div>
+              <div className="divide-y divide-gray-50">
+                {atRiskAll.slice(0, 6).map(s => (
+                  <div key={s.id} className="px-8 py-4 flex items-center gap-4 hover:bg-red-50/30 transition-colors group">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="font-black text-gray-900 text-sm truncate">{s.name}</span>
+                        <span className="text-[10px] text-gray-400 font-medium shrink-0">· {s.subject}</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className={`text-[9px] font-black px-2 py-0.5 rounded-lg border uppercase tracking-widest ${s.riskLevel==='High' ? 'text-red-600 bg-red-50 border-red-200' : 'text-orange-600 bg-orange-50 border-orange-200'}`}>
+                          {s.riskLevel} Risk
+                        </span>
+                        <span className="text-xs font-bold text-gray-500">Avg: {s.mean.toFixed(1)}%</span>
+                        <span className={`text-xs font-bold flex items-center gap-1 ${s.slope > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                          {s.slope > 0 ? <TrendingUp size={11}/> : <TrendingDown size={11}/>}
+                          {s.slope > 0 ? '+' : ''}{s.slope.toFixed(1)} pts/test
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => navigateTo('student', s.id)}
+                      className="shrink-0 text-[10px] font-black text-blue-600 bg-blue-50 px-4 py-2 rounded-xl uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all"
+                    >
+                      View →
+                    </button>
+                  </div>
+                ))}
+                {atRiskAll.length > 6 && (
+                  <div className="px-8 py-3 text-center">
+                    <span className="text-xs font-black text-gray-400 uppercase tracking-widest">
+                      +{atRiskAll.length-6} more — open a classroom to see all
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
         <div className="flex justify-between items-center mb-4 mt-10">
           <h2 className="text-2xl font-black text-gray-800 tracking-tight">Active Classrooms ({filteredClasses.length})</h2>
           <div className="relative">
@@ -1753,6 +1835,54 @@ export default function App() {
           )
         )}
         </div>
+
+        {/* ── AT-RISK PANEL (Classroom) ── */}
+        {(() => {
+          const atRisk = classData.studentStats.filter(s => s.riskLevel === 'High' || s.riskLevel === 'Medium')
+            .sort((a,b) => (b.riskLevel==='High'?1:0)-(a.riskLevel==='High'?1:0));
+          if (!atRisk.length) return null;
+          return (
+            <div className="bg-white rounded-3xl border border-red-100 shadow-sm overflow-hidden">
+              <div className="px-8 py-5 border-b border-red-50 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-red-50 flex items-center justify-center">
+                    <AlertTriangle className="h-4 w-4 text-red-500" />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-gray-900 text-sm">Students Needing Attention</h3>
+                    <p className="text-gray-400 text-xs font-medium">{atRisk.length} student{atRisk.length!==1?'s':''} flagged in this class</p>
+                  </div>
+                </div>
+                <span className="text-[10px] font-black text-red-500 bg-red-50 border border-red-100 px-3 py-1.5 rounded-xl uppercase tracking-widest">
+                  {atRisk.filter(s=>s.riskLevel==='High').length} High · {atRisk.filter(s=>s.riskLevel==='Medium').length} Medium
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-0 divide-y sm:divide-y-0 sm:divide-x divide-gray-50">
+                {atRisk.map(s => (
+                  <div key={s.id} className="px-6 py-4 hover:bg-red-50/20 transition-colors">
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <span className="font-black text-gray-900 text-sm leading-tight">{s.name}</span>
+                      <span className={`text-[9px] font-black px-2 py-0.5 rounded-lg border uppercase tracking-widest shrink-0 ${s.riskLevel==='High' ? 'text-red-600 bg-red-50 border-red-200' : 'text-orange-600 bg-orange-50 border-orange-200'}`}>
+                        {s.riskLevel}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 mb-3">
+                      <span className="text-xs font-bold text-gray-500">Avg: <span className="text-gray-800">{s.mean.toFixed(1)}%</span></span>
+                      <span className={`text-xs font-bold flex items-center gap-0.5 ${s.slope > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                        {s.slope > 0 ? <TrendingUp size={11}/> : <TrendingDown size={11}/>}
+                        {s.slope > 0 ? '+' : ''}{s.slope.toFixed(1)}
+                      </span>
+                    </div>
+                    <button onClick={() => navigateTo('student', s.id)}
+                      className="w-full text-[10px] font-black text-blue-600 bg-blue-50 py-1.5 rounded-lg uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all">
+                      View Profile →
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 w-full">
           <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 w-full h-80">
