@@ -117,6 +117,15 @@ export default function App() {
     setShowPaywall(feature);
   };
 
+  // Handle reset password token in URL on initial page load
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+    if (token && !user) {
+      setAuthView('reset');
+    }
+  }, []);
+
   // After Stripe redirects back with ?payment=success, re-check premium status
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1256,6 +1265,162 @@ export default function App() {
     </div>
   );
 
+  const ForgotPasswordPage = () => {
+    const [email, setEmail] = useState('');
+    const [status, setStatus] = useState(''); // '' | 'sending' | 'sent' | 'error'
+
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      setStatus('sending');
+      try {
+        const res = await fetch('https://edumetrics-api-kro4.onrender.com/api/auth/forgot-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+        setStatus(res.ok ? 'sent' : 'error');
+      } catch { setStatus('error'); }
+    };
+
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
+        <div className="w-full max-w-md bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
+          <div className="p-8 pb-6 border-b border-gray-100 text-center bg-gray-50/50">
+            <div className="flex justify-center items-center text-blue-600 mb-4">
+              <Activity className="h-10 w-10 mr-2" strokeWidth={3} />
+            </div>
+            <h2 className="text-2xl font-black text-gray-900 tracking-tight mb-2">Forgot Password?</h2>
+            <p className="text-sm text-gray-500 font-medium">Enter your email and we'll send a reset link.</p>
+          </div>
+          {status === 'sent' ? (
+            <div className="p-8 text-center">
+              <div className="text-4xl mb-4">✉️</div>
+              <p className="font-black text-gray-900 mb-2">Check your inbox</p>
+              <p className="text-gray-500 text-sm font-medium mb-6">If that email is registered, a reset link has been sent. It expires in 1 hour.</p>
+              <button onClick={() => setAuthView('login')} className="text-blue-600 font-bold text-sm hover:text-blue-800 transition-colors">
+                Back to Log In
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="p-8 space-y-5">
+              {status === 'error' && (
+                <div className="bg-red-50 text-red-600 p-3 rounded-xl text-sm font-bold border border-red-100 flex items-center">
+                  <ShieldAlert size={16} className="mr-2 flex-shrink-0" /> Something went wrong. Please try again.
+                </div>
+              )}
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Your Email Address</label>
+                <input type="email" required value={email} onChange={e => setEmail(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 font-medium transition-all"
+                  placeholder="you@school.edu" />
+              </div>
+              <button type="submit" disabled={status === 'sending'}
+                className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-bold py-3.5 rounded-xl shadow-md transition-all flex justify-center items-center">
+                {status === 'sending' ? 'Sending...' : 'Send Reset Link'}
+              </button>
+              <button type="button" onClick={() => setAuthView('login')} className="w-full text-gray-400 hover:text-gray-600 font-bold text-sm py-1 transition-colors">
+                Back to Log In
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const ResetPasswordPage = () => {
+    const [newPassword, setNewPassword] = useState('');
+    const [confirm, setConfirm] = useState('');
+    const [status, setStatus] = useState(''); // '' | 'saving' | 'done' | 'error' | 'expired'
+    const [error, setError] = useState('');
+
+    // Extract token from URL query params
+    const token = new URLSearchParams(window.location.search).get('token');
+
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      setError('');
+      if (newPassword.length < 6 || !/\d/.test(newPassword)) {
+        setError('Password must be at least 6 characters and contain a number.');
+        return;
+      }
+      if (newPassword !== confirm) {
+        setError('Passwords do not match.');
+        return;
+      }
+      setStatus('saving');
+      try {
+        const res = await fetch('https://edumetrics-api-kro4.onrender.com/api/auth/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, newPassword })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setStatus('done');
+          window.history.replaceState({}, '', window.location.pathname);
+        } else {
+          setStatus('expired');
+          setError(data.error || 'Something went wrong.');
+        }
+      } catch { setStatus('error'); setError('Could not connect to the server.'); }
+    };
+
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
+        <div className="w-full max-w-md bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
+          <div className="p-8 pb-6 border-b border-gray-100 text-center bg-gray-50/50">
+            <div className="flex justify-center items-center text-blue-600 mb-4">
+              <Activity className="h-10 w-10 mr-2" strokeWidth={3} />
+            </div>
+            <h2 className="text-2xl font-black text-gray-900 tracking-tight mb-2">Set New Password</h2>
+            <p className="text-sm text-gray-500 font-medium">Choose a strong password for your account.</p>
+          </div>
+          {status === 'done' ? (
+            <div className="p-8 text-center">
+              <div className="text-4xl mb-4">✅</div>
+              <p className="font-black text-gray-900 mb-2">Password updated!</p>
+              <p className="text-gray-500 text-sm font-medium mb-6">You can now log in with your new password.</p>
+              <button onClick={() => setAuthView('login')}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all">
+                Go to Log In
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="p-8 space-y-5">
+              {(error || status === 'expired') && (
+                <div className="bg-red-50 text-red-600 p-3 rounded-xl text-sm font-bold border border-red-100 flex items-center">
+                  <ShieldAlert size={16} className="mr-2 flex-shrink-0" />
+                  {error || 'This link has expired.'}{' '}
+                  {status === 'expired' && (
+                    <button type="button" onClick={() => setAuthView('forgot')} className="underline ml-1">Request a new one</button>
+                  )}
+                </div>
+              )}
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">New Password</label>
+                <input type="password" required value={newPassword} onChange={e => setNewPassword(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 font-medium transition-all"
+                  placeholder="••••••••" />
+                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mt-2">Min 6 characters, must include a number.</p>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Confirm Password</label>
+                <input type="password" required value={confirm} onChange={e => setConfirm(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 font-medium transition-all"
+                  placeholder="••••••••" />
+              </div>
+              <button type="submit" disabled={status === 'saving'}
+                className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-bold py-3.5 rounded-xl shadow-md transition-all flex justify-center items-center">
+                <Lock size={18} className="mr-2" /> {status === 'saving' ? 'Saving...' : 'Update Password'}
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const LandingPage = () => (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <header className="bg-white border-b border-gray-200 py-4 px-8 flex justify-between items-center">
@@ -1476,6 +1641,9 @@ export default function App() {
             </button>
           </form>
           <div className="p-6 pt-0 text-center space-y-3 flex flex-col">
+            <button onClick={() => setAuthView('forgot')} className="text-gray-500 hover:text-blue-600 text-sm font-bold transition-colors">
+              Forgot your password?
+            </button>
             <button onClick={() => setAuthView('signup')} className="text-blue-600 hover:text-blue-800 text-sm font-bold transition-colors">
               Don't have an account? Create one
             </button>
@@ -2569,6 +2737,8 @@ export default function App() {
     if (authView === 'landing') return <LandingPage />;
     if (authView === 'signup') return <SignupPage />;
     if (authView === 'login') return <LoginPage />;
+    if (authView === 'forgot') return <ForgotPasswordPage />;
+    if (authView === 'reset') return <ResetPasswordPage />;
   }
 
   if (showPricingPage) return <><PricingPage /><PaywallModal /></>;
