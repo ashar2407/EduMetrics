@@ -212,76 +212,162 @@ export default function App() {
 
   const processCSV = (csvText, activeFormat = gradeFormat, silent = false, overrideUser = user) => {
     try {
-      // 1. Clean and split lines, ignoring empty ones at the end
+      // ── STEP 1: Detect delimiter (comma, tab, semicolon, pipe) ──────────────────
       let lines = csvText.trim().split('\n').map(l => l.trim()).filter(l => l);
-      if (lines.length < 2) { 
-        if (!silent) alert("The file appears to be empty or invalid."); 
-        return; 
+      if (lines.length < 2) {
+        if (!silent) alert("The file appears to be empty or invalid.");
+        return;
+      }
+      // Sample first few lines to detect the most common delimiter
+      const sample = lines.slice(0, 5).join('\n');
+      const delimiters = [',', '\t', ';', '|'];
+      const delimiter = delimiters.reduce((best, d) =>
+        (sample.split(d).length > sample.split(best).length ? d : best), ',');
+
+      // ── STEP 2: Smart header row detection (skips title rows) ──────────────────
+      const schoolKeywords = ['name','id','score','grade','subject','test','date','mark',
+        'result','student','pupil','class','module','course','percent','total','term',
+        'unit','assessment','year','form','group','set','teacher'];
+      let headerRowIndex = 0;
+      let maxScore = -1;
+      for (let i = 0; i < Math.min(20, lines.length); i++) {
+        const cols = lines[i].toLowerCase().split(delimiter);
+        if (cols.length < 2) continue;
+        const score = cols.filter(c => schoolKeywords.some(kw => c.includes(kw))).length;
+        if (score > maxScore) { maxScore = score; headerRowIndex = i; }
       }
 
-      // 2. SMART HEADER DETECTION (Finds the row with actual headers, skipping titles)
-      let headerRowIndex = 0;
-      let maxScoreFound = -1;
-      
-      for (let i = 0; i < Math.min(20, lines.length); i++) {
-        const cols = lines[i].toLowerCase().split(',');
-        // Score this row based on how many "school data" keywords it contains
-        let rowScore = cols.filter(c => c.includes('name') || c.includes('id') || c.includes('score') || c.includes('grade') || c.includes('subject') || c.includes('test') || c.includes('date')).length;
-        if (rowScore > maxScoreFound && cols.length >= 3) {
-          maxScoreFound = rowScore;
-          headerRowIndex = i;
+      // ── Helper: parse a CSV/TSV/SSV line respecting quoted fields ──────────────
+      const parseLine = (line) => {
+        const vals = [];
+        let inQ = false, cur = '';
+        for (const ch of line) {
+          if (ch === '"') { inQ = !inQ; }
+          else if (ch === delimiter && !inQ) { vals.push(cur.trim()); cur = ''; }
+          else cur += ch;
+        }
+        vals.push(cur.trim());
+        return vals;
+      };
+
+      const rawHeaders = parseLine(lines[headerRowIndex]).map(h => h.replace(/^"|"$/g, '').trim());
+      const dataLines = lines.slice(headerRowIndex + 1);
+
+      // ── STEP 3: Expanded alias dictionary ──────────────────────────────────────
+      const aliases = {
+        studentId: ['studentid','student_id','id','upn','urn','code','ref','number',
+                    'learnerid','identifier','admno','rollno','roll','regno','regnum',
+                    'candidateno','candidateid','examnumber','examno','index'],
+        firstName: ['first','forename','given','firstname','fname','givenname'],
+        lastName:  ['last','surname','family','lastname','lname','familyname'],
+        studentName:['studentname','student_name','name','fullname','pupil','learner',
+                    'student','candidatename','childname','legal name','preferred name'],
+        subject:   ['subject','class','course','module','program','programme','branch',
+                    'paper','component','qualification','subject name','classname'],
+        topic:     ['testname','test_name','test','assessment','topic','unit','chapter',
+                    'concept','assignment','task','exam','quiz','hw','homework',
+                    'assessmenttitle','tasktitle','examtitle','papername'],
+        date:      ['testdate','test_date','date','time','timestamp','semester','term',
+                    'week','period','session','academic year','year','month','sitting'],
+        percentage:['percentage','pct','%','percent','perc','pctmark','percentmark',
+                    'finalpercentage','overallpercent'],
+        maxScore:  ['max','outof','total','max_score','maxscore','possible','fullmark',
+                    'fullmarks','maxmark','maxmarks','totalmarks','outofmarks',
+                    'available','maximum','totalpossible'],
+        score:     ['score','raw_score','grade','mark','result','points','marks',
+                    'rawmark','rawmarks','achieved','attained','obtainedmarks',
+                    'marksachieved','markobtained','finalscore','finalmark',
+                    'totalscore','overallscore','overallmark','overallgrade',
+                    'scaled','weighted','value']
+      };
+
+      const headerMap = {
+        studentId: null, firstName: null, lastName: null, studentName: null,
+        subject: null, topic: null, date: null, percentage: null, maxScore: null, score: null
+      };
+
+      const norm = h => h.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+      // Pass 1 — IDs
+      rawHeaders.forEach(h => {
+        const n = norm(h);
+        if (!headerMap.studentId && aliases.studentId.some(kw => n === norm(kw) || n.endsWith('id') || n.endsWith('no') || n === 'code'))
+          headerMap.studentId = h;
+      });
+
+      // Pass 2 — Names
+      rawHeaders.forEach(h => {
+        if (h === headerMap.studentId) return;
+        const n = norm(h);
+        if (!headerMap.firstName  && aliases.firstName.some(kw => n.includes(norm(kw))))  headerMap.firstName = h;
+        else if (!headerMap.lastName && aliases.lastName.some(kw => n.includes(norm(kw)))) headerMap.lastName = h;
+        else if (!headerMap.studentName && aliases.studentName.some(kw => n === norm(kw) || n.includes(norm(kw)))) headerMap.studentName = h;
+      });
+
+      // Pass 3 — Scores, subjects, dates (priority: percentage > maxScore > score)
+      rawHeaders.forEach(h => {
+        if ([headerMap.studentId, headerMap.studentName, headerMap.firstName, headerMap.lastName].includes(h)) return;
+        const n = norm(h);
+        if (!headerMap.percentage && aliases.percentage.some(kw => n.includes(norm(kw)))) headerMap.percentage = h;
+        else if (!headerMap.maxScore && aliases.maxScore.some(kw => n.includes(norm(kw)))) headerMap.maxScore = h;
+        else if (!headerMap.score && aliases.score.some(kw => n === norm(kw) || n.includes(norm(kw)))) headerMap.score = h;
+        else if (!headerMap.subject && aliases.subject.some(kw => n.includes(norm(kw)))) headerMap.subject = h;
+        else if (!headerMap.topic && aliases.topic.some(kw => n.includes(norm(kw)))) headerMap.topic = h;
+        else if (!headerMap.date && aliases.date.some(kw => n.includes(norm(kw)))) headerMap.date = h;
+      });
+
+      // ── STEP 4: Fallbacks if nothing matched ───────────────────────────────────
+      // If still no score column, try any column whose values look like numbers
+      if (!headerMap.score && !headerMap.percentage) {
+        const sampleRow = parseLine(dataLines[0] || '');
+        rawHeaders.forEach((h, i) => {
+          if (headerMap.score) return;
+          if ([headerMap.studentId, headerMap.studentName, headerMap.firstName,
+               headerMap.lastName, headerMap.subject, headerMap.topic, headerMap.date].includes(h)) return;
+          const val = sampleRow[i] || '';
+          // If the cell looks numeric (including "45/60" or "85%"), treat as score
+          if (/^\d+(\.\d+)?$/.test(val) || /^\d+\/\d+$/.test(val) || /^\d+%$/.test(val)) {
+            headerMap.score = h;
+          }
+        });
+      }
+
+      // If still no name, use the first text (non-numeric) column
+      if (!headerMap.studentName && !headerMap.firstName && !headerMap.lastName) {
+        const sampleRow = parseLine(dataLines[0] || '');
+        for (let i = 0; i < rawHeaders.length; i++) {
+          if (rawHeaders[i] === headerMap.studentId) continue;
+          const val = sampleRow[i] || '';
+          if (val && isNaN(parseFloat(val))) {
+            headerMap.studentName = rawHeaders[i];
+            break;
+          }
         }
       }
 
-      const rawHeaders = lines[headerRowIndex].split(',').map(h => h.replace(/^"|"$/g, '').trim());
-      const dataLines = lines.slice(headerRowIndex + 1);
-      
-      const aliases = {
-        studentId: ['studentid', 'student_id', 'id', 'upn', 'urn', 'code', 'ref', 'number', 'learnerid', 'identifier'],
-        firstName: ['first', 'forename', 'given'],
-        lastName: ['last', 'surname', 'family'],
-        studentName: ['studentname', 'student_name', 'name', 'fullname', 'pupil', 'learner', 'student'],
-        subject: ['subject', 'class', 'course', 'module', 'program', 'branch'],
-        topic: ['testname', 'test_name', 'test', 'assessment', 'topic', 'unit', 'chapter', 'concept', 'assignment'],
-        date: ['testdate', 'test_date', 'date', 'time', 'timestamp', 'semester', 'term', 'week'],
-        percentage: ['percentage', 'pct', '%', 'percent'],
-        maxScore: ['max', 'outof', 'total', 'max_score', 'maxscore', 'possible'],
-        score: ['score', 'raw_score', 'grade', 'mark', 'result', 'points']
-      };
-
-      const headerMap = { studentId: null, firstName: null, lastName: null, studentName: null, subject: null, topic: null, date: null, percentage: null, maxScore: null, score: null };
-      
-      // Pass 1: Strict ID
-      rawHeaders.forEach(h => {
-          let n = h.toLowerCase().replace(/[^a-z]/g, '');
-          if (!headerMap.studentId && aliases.studentId.some(kw => n === kw || n.endsWith('id') || n === 'code')) headerMap.studentId = h;
-      });
-
-      // Pass 2: Names (First/Last split or Full Name)
-      rawHeaders.forEach(h => {
-          if (h === headerMap.studentId) return;
-          let n = h.toLowerCase().replace(/[^a-z]/g, '');
-          if (!headerMap.firstName && aliases.firstName.some(kw => n.includes(kw))) headerMap.firstName = h;
-          else if (!headerMap.lastName && aliases.lastName.some(kw => n.includes(kw))) headerMap.lastName = h;
-          else if (!headerMap.studentName && aliases.studentName.some(kw => n === kw || n.includes(kw))) headerMap.studentName = h;
-      });
-
-      // Pass 3: Scores, Subjects, Dates
-      rawHeaders.forEach(h => {
-          if ([headerMap.studentId, headerMap.studentName, headerMap.firstName, headerMap.lastName].includes(h)) return;
-          let n = h.toLowerCase().replace(/[^a-z]/g, '');
-
-          if (!headerMap.maxScore && aliases.maxScore.some(kw => n.includes(kw))) headerMap.maxScore = h;
-          else if (!headerMap.percentage && aliases.percentage.some(kw => n.includes(kw))) headerMap.percentage = h;
-          else if (!headerMap.score && aliases.score.some(kw => n === kw || n.includes(kw))) headerMap.score = h;
-          else if (!headerMap.subject && aliases.subject.some(kw => n.includes(kw))) headerMap.subject = h;
-          else if (!headerMap.topic && aliases.topic.some(kw => n.includes(kw))) headerMap.topic = h;
-          else if (!headerMap.date && aliases.date.some(kw => n.includes(kw))) headerMap.date = h;
-      });
-
       if (!headerMap.score && !headerMap.percentage) {
-        if (!silent) alert("Grade Lens AI could not automatically locate a 'Score' or 'Percentage' column. Please check your file headers."); 
+        if (!silent) alert("Grade Lens could not find a score column. Make sure your file has a column for marks, scores, grades, or percentages.");
         return;
+      }
+
+      // ── STEP 5: Auto-detect max score from data if column missing ──────────────
+      // If scores look like raw marks (>100 or consistent round numbers like /50, /80)
+      // we'll try to infer the max from the data itself
+      let inferredMax = null;
+      if (!headerMap.maxScore && headerMap.score && !headerMap.percentage) {
+        const scoreVals = dataLines.slice(0, 30).map(l => {
+          const vals = parseLine(l);
+          const idx = rawHeaders.indexOf(headerMap.score);
+          return vals[idx] || '';
+        }).filter(v => v && !/\//.test(v)); // skip "45/50" style — handled separately
+        const nums = scoreVals.map(v => parseFloat(v.replace(/[^0-9.-]/g, ''))).filter(n => !isNaN(n));
+        const maxVal = Math.max(...nums);
+        // Only infer if values are clearly raw marks (common max values like 20,25,40,50,60,80,100,120)
+        const commonMaxes = [10,15,20,25,30,40,50,60,75,80,100,120,150,200];
+        if (maxVal > 0 && maxVal <= 200 && nums.every(n => n <= maxVal)) {
+          const closest = commonMaxes.find(m => m >= maxVal);
+          if (closest && maxVal / closest > 0.3) inferredMax = closest;
+        }
       }
 
       const newClassesMap = {};
@@ -289,71 +375,86 @@ export default function App() {
       const newAssessmentsMap = {};
       const newScores = [];
       let fallbackCounter = 1;
+      let skippedRows = 0;
 
       for (let i = 0; i < dataLines.length; i++) {
         if (!dataLines[i].trim()) continue;
-        // Parse CSV line handling commas inside quotes
-        let values = [];
-        let inQuotes = false;
-        let currentValue = "";
-        for (let char of dataLines[i]) {
-            if (char === '"') inQuotes = !inQuotes;
-            else if (char === ',' && !inQuotes) { values.push(currentValue.trim()); currentValue = ""; }
-            else currentValue += char;
-        }
-        values.push(currentValue.trim());
+        const values = parseLine(dataLines[i]);
 
         const row = {};
         rawHeaders.forEach((header, index) => { row[header] = values[index] !== undefined ? values[index] : ''; });
 
-        // Build Name smartly
+        // ── Name resolution ────────────────────────────────────────────────────
         let nameVal = headerMap.studentName ? row[headerMap.studentName] : '';
         if (!nameVal && headerMap.firstName && headerMap.lastName) {
-            nameVal = `${row[headerMap.firstName]} ${row[headerMap.lastName]}`.trim();
+          nameVal = `${row[headerMap.firstName] || ''} ${row[headerMap.lastName] || ''}`.trim();
         } else if (!nameVal && (headerMap.firstName || headerMap.lastName)) {
-            nameVal = (row[headerMap.firstName] || row[headerMap.lastName]).trim();
+          nameVal = (row[headerMap.firstName] || row[headerMap.lastName] || '').trim();
         }
+        // Strip any remaining quotes
+        nameVal = nameVal.replace(/^"|"$/g, '').trim();
 
         const idVal = headerMap.studentId && row[headerMap.studentId] ? row[headerMap.studentId] : 'N/A';
-        
-        // Smart Score Calculation
+
+        // ── Score resolution ───────────────────────────────────────────────────
         let rawScore = NaN;
         if (headerMap.percentage && row[headerMap.percentage]) {
-            rawScore = parseFloat(row[headerMap.percentage].replace(/[^0-9.-]/g, ''));
+          rawScore = parseFloat(row[headerMap.percentage].replace(/[^0-9.-]/g, ''));
         } else if (headerMap.score && row[headerMap.score]) {
-            let scoreStr = String(row[headerMap.score]);
-            // Handle fractional inputs like "45/50" natively
-            if (scoreStr.includes('/')) {
-                let parts = scoreStr.split('/');
-                let s = parseFloat(parts[0]);
-                let m = parseFloat(parts[1]);
-                if (!isNaN(s) && !isNaN(m) && m > 0) rawScore = (s/m)*100;
-            } else {
-                rawScore = parseGradeToNumber(scoreStr, activeFormat);
-                if (headerMap.maxScore && row[headerMap.maxScore] && !isNaN(rawScore) && activeFormat === 'auto') {
-                    let max = parseFloat(row[headerMap.maxScore]);
-                    if (!isNaN(max) && max > 0) rawScore = (rawScore / max) * 100;
-                }
+          let scoreStr = String(row[headerMap.score]).trim().replace(/^"|"$/g, '');
+          if (scoreStr.includes('/')) {
+            // "45/60" format
+            const [num, den] = scoreStr.split('/').map(Number);
+            if (!isNaN(num) && !isNaN(den) && den > 0) rawScore = (num / den) * 100;
+          } else if (scoreStr.endsWith('%')) {
+            rawScore = parseFloat(scoreStr);
+          } else {
+            rawScore = parseGradeToNumber(scoreStr, activeFormat);
+            // Apply explicit max column
+            if (headerMap.maxScore && row[headerMap.maxScore] && !isNaN(rawScore)) {
+              const max = parseFloat(row[headerMap.maxScore]);
+              if (!isNaN(max) && max > 0 && rawScore <= max) rawScore = (rawScore / max) * 100;
+            // Apply inferred max if score > 100 (clearly raw marks)
+            } else if (inferredMax && !isNaN(rawScore) && rawScore > 100) {
+              rawScore = (rawScore / inferredMax) * 100;
+            } else if (inferredMax && !isNaN(rawScore) && activeFormat === 'auto' && inferredMax !== 100) {
+              rawScore = (rawScore / inferredMax) * 100;
             }
+          }
         }
 
-        if (!nameVal || isNaN(rawScore)) continue;
+        // Clamp to 0-100
+        if (!isNaN(rawScore)) rawScore = Math.min(100, Math.max(0, rawScore));
 
-        const rawSubject = headerMap.subject && row[headerMap.subject] ? row[headerMap.subject] : 'General Classroom';
-        let rawDate = headerMap.date && row[headerMap.date] ? row[headerMap.date] : `Assessment ${fallbackCounter++}`;
-        if (!isNaN(rawDate)) rawDate = `Semester ${rawDate}`;
+        // Skip rows with no name or no parseable score — but count them
+        if (!nameVal || isNaN(rawScore)) { skippedRows++; continue; }
 
-        const rawTopic = headerMap.topic && row[headerMap.topic] ? row[headerMap.topic] : '';
-        const assessmentName = rawTopic ? rawTopic : (rawDate.includes('Semester') || rawDate.includes('Test') ? rawDate : `Test: ${rawDate}`);
+        // ── Subject / Assessment / Date ────────────────────────────────────────
+        const rawSubject = headerMap.subject && row[headerMap.subject]
+          ? row[headerMap.subject].replace(/^"|"$/g, '').trim()
+          : 'General Classroom';
 
-        const subjectId = rawSubject.toLowerCase().replace(/\s+/g, '-');
-        const studentKey = `${subjectId}-${String(nameVal).toLowerCase().replace(/\s+/g, '-')}-${String(idVal).toLowerCase().replace(/\s+/g, '-')}`;
-        const assessmentId = `${subjectId}-${assessmentName.toLowerCase().replace(/\s+/g, '-')}`;
+        let rawDate = headerMap.date && row[headerMap.date]
+          ? row[headerMap.date].replace(/^"|"$/g, '').trim()
+          : `Assessment ${fallbackCounter++}`;
+        if (!isNaN(rawDate) && rawDate !== '') rawDate = `Term ${rawDate}`;
+
+        const rawTopic = headerMap.topic && row[headerMap.topic]
+          ? row[headerMap.topic].replace(/^"|"$/g, '').trim()
+          : '';
+        const assessmentName = rawTopic
+          ? rawTopic
+          : (rawDate.includes('Term') || rawDate.includes('Test') || rawDate.includes('Semester')
+              ? rawDate : `Test: ${rawDate}`);
+
+        const subjectId = rawSubject.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+        const studentKey = `${subjectId}-${String(nameVal).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}-${String(idVal).toLowerCase().replace(/\s+/g, '-')}`;
+        const assessmentId = `${subjectId}-${assessmentName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`;
 
         if (!newClassesMap[subjectId]) newClassesMap[subjectId] = { id: subjectId, name: rawSubject };
         if (!newStudentsMap[studentKey]) newStudentsMap[studentKey] = { id: studentKey, classId: subjectId, name: nameVal, externalId: idVal };
         if (!newAssessmentsMap[assessmentId]) newAssessmentsMap[assessmentId] = { id: assessmentId, classId: subjectId, name: assessmentName, date: rawDate, topic: rawTopic };
-        
+
         newScores.push({ studentId: studentKey, assessmentId, score: rawScore });
       }
 
@@ -361,11 +462,16 @@ export default function App() {
         const finalClasses = Object.values(newClassesMap);
         const finalStudents = Object.values(newStudentsMap);
         const finalAssessments = Object.values(newAssessmentsMap).sort((a, b) => a.date.localeCompare(b.date));
-        
+
         setClasses(finalClasses);
         setStudents(finalStudents);
         setAssessments(finalAssessments);
         setScores(newScores);
+
+        // Inform the user if some rows were skipped (helpful for debugging)
+        if (!silent && skippedRows > 0 && skippedRows < dataLines.length * 0.5) {
+          console.info(`Grade Lens: imported ${newScores.length} scores, skipped ${skippedRows} rows (missing name or unreadable score).`);
+        }
         
         // --- SAVE NEW DATA TO THIS USER'S ACCOUNT ---
         const activeUser = overrideUser || user;
