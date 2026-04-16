@@ -41,30 +41,55 @@ const calcLinearRegression = (yValues) => {
   return { slope, intercept };
 };
 
+// ── SUBJECT GROUPING ─────────────────────────────────────────────────────────
+// Detects when multiple classes share the same base subject name
+// e.g. "Physics A", "Physics Set 1", "Physics (Group 2)"
+const groupClasses = (classes) => {
+  const baseName = (name) => name
+    .replace(/\s*[\(\[]\s*(group|set|class|section|band|stream)\s*[a-z0-9]+\s*[\)\]]/gi, '')
+    .replace(/\s*(group|set|class|section|band|stream)\s*[a-z0-9]+$/gi, '')
+    .replace(/\s+[a-z]$/i, '')
+    .replace(/\s+\d+$/, '')
+    .replace(/\s*[-\/]\s*[a-z0-9]$/i, '')
+    .trim();
+  const groups = {};
+  classes.forEach(cls => {
+    const base = baseName(cls.name);
+    if (!groups[base]) groups[base] = [];
+    groups[base].push(cls.id);
+  });
+  return groups;
+};
+
 const parseGradeToNumber = (val, format = 'auto') => {
   if (val === undefined || val === null || val === '') return NaN;
   const cleanVal = String(val).toLowerCase().trim();
 
   const formatMaps = {
     'us_letter': { 'a+': 100, 'a': 95, 'a-': 90, 'b+': 85, 'b': 80, 'b-': 75, 'c+': 70, 'c': 65, 'c-': 60, 'd+': 55, 'd': 50, 'd-': 45, 'f': 0, 'e': 40 },
-    'uk_gcse': { '9': 100, '8': 89, '7': 78, '6': 67, '5': 56, '4': 44, '3': 33, '2': 22, '1': 11, 'u': 0 },
+    'uk_gcse':   { '9': 100, '8': 89, '7': 78, '6': 67, '5': 56, '4': 44, '3': 33, '2': 22, '1': 11, 'u': 0 },
     'uk_alevel': { 'a*': 100, 'a': 85, 'b': 70, 'c': 55, 'd': 40, 'e': 25, 'u': 0 },
-    'ib': { '7': 100, '6': 85, '5': 70, '4': 55, '3': 40, '2': 25, '1': 10 },
-    'uni_uk': { '1st': 85, 'first': 85, '2:1': 65, '2.1': 65, '2:2': 55, '2.2': 55, '3rd': 45, 'third': 45, 'fail': 0 }
+    'ib':        { '7': 100, '6': 85, '5': 70, '4': 55, '3': 40, '2': 25, '1': 10 },
+    'uni_uk':    { '1st': 85, 'first': 85, '2:1': 65, '2.1': 65, '2:2': 55, '2.2': 55, '3rd': 45, 'third': 45, 'fail': 0 }
   };
 
   if (format !== 'percentage' && format !== 'auto' && formatMaps[format]) {
     if (formatMaps[format][cleanVal] !== undefined) return formatMaps[format][cleanVal];
+    const stripped = cleanVal.replace(/\s/g, '');
+    if (formatMaps[format][stripped] !== undefined) return formatMaps[format][stripped];
+    const num2 = parseFloat(val);
+    if (!isNaN(num2)) return num2;
+    return NaN;
   }
 
   const num = parseFloat(val);
-  
   if (format === 'auto') {
-    if (!isNaN(num)) return num; 
+    if (!isNaN(num)) return num;
     if (formatMaps['us_letter'][cleanVal] !== undefined) return formatMaps['us_letter'][cleanVal];
     if (formatMaps['uk_alevel'][cleanVal] !== undefined) return formatMaps['uk_alevel'][cleanVal];
+    if (formatMaps['uk_gcse'][cleanVal]   !== undefined) return formatMaps['uk_gcse'][cleanVal];
+    if (formatMaps['ib'][cleanVal]        !== undefined) return formatMaps['ib'][cleanVal];
   }
-
   return !isNaN(num) ? num : NaN;
 };
 
@@ -161,7 +186,9 @@ export default function App() {
 
     const handleHashChange = () => {
       const hash = window.location.hash;
-      if (hash.startsWith('#/class/')) {
+      if (hash.startsWith('#/subject/')) {
+        setView({ type: 'subject', id: decodeURIComponent(hash.replace('#/subject/', '')) });
+      } else if (hash.startsWith('#/class/')) {
         setView({ type: 'class', id: hash.replace('#/class/', '') });
       } else if (hash.startsWith('#/student/')) {
         setView({ type: 'student', id: hash.replace('#/student/', '') });
@@ -175,9 +202,10 @@ export default function App() {
   }, [user]);
 
   const navigateTo = (type, id = null) => {
-    if (type !== 'home') setTourStep(-1); // pause tour when drilling into a page
+    if (type !== 'home') setTourStep(-1);
     setShowSettings(false);
     if (type === 'home') window.location.hash = '#/';
+    else if (type === 'subject') window.location.hash = `#/subject/${encodeURIComponent(id)}`;
     else if (type === 'class') window.location.hash = `#/class/${id}`;
     else if (type === 'student') window.location.hash = `#/student/${id}`;
   };
@@ -410,15 +438,17 @@ export default function App() {
             rawScore = parseFloat(scoreStr);
           } else {
             rawScore = parseGradeToNumber(scoreStr, activeFormat);
-            // Apply explicit max column
-            if (headerMap.maxScore && row[headerMap.maxScore] && !isNaN(rawScore)) {
-              const max = parseFloat(row[headerMap.maxScore]);
-              if (!isNaN(max) && max > 0 && rawScore <= max) rawScore = (rawScore / max) * 100;
-            // Apply inferred max if score > 100 (clearly raw marks)
-            } else if (inferredMax && !isNaN(rawScore) && rawScore > 100) {
-              rawScore = (rawScore / inferredMax) * 100;
-            } else if (inferredMax && !isNaN(rawScore) && activeFormat === 'auto' && inferredMax !== 100) {
-              rawScore = (rawScore / inferredMax) * 100;
+            // Grade formats (A-level, GCSE, IB etc.) already return 0-100 — skip max division
+            const isGradeFormat = activeFormat !== 'auto' && activeFormat !== 'percentage';
+            if (!isGradeFormat) {
+              if (headerMap.maxScore && row[headerMap.maxScore] && !isNaN(rawScore)) {
+                const max = parseFloat(row[headerMap.maxScore]);
+                if (!isNaN(max) && max > 0 && rawScore <= max) rawScore = (rawScore / max) * 100;
+              } else if (inferredMax && !isNaN(rawScore) && rawScore > 100) {
+                rawScore = (rawScore / inferredMax) * 100;
+              } else if (inferredMax && !isNaN(rawScore) && activeFormat === 'auto' && inferredMax !== 100) {
+                rawScore = (rawScore / inferredMax) * 100;
+              }
             }
           }
         }
@@ -2032,68 +2062,258 @@ export default function App() {
           </div>
         </div>
 
-        <div id="demo-classroom-cards" className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div id="demo-classroom-cards">
           {classes.length === 0 ? (
-            <div className="col-span-full py-20 text-center bg-white rounded-3xl border border-dashed border-gray-300">
+            <div className="py-20 text-center bg-white rounded-3xl border border-dashed border-gray-300">
               <div className="mx-auto w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mb-4">
                 <UploadCloud className="h-8 w-8 text-blue-500" />
               </div>
               <h3 className="text-xl font-bold text-gray-800 mb-2">No Class Data Found</h3>
               <p className="text-gray-500 font-medium">Upload any Excel or CSV grading sheet above to generate predictive analytics.</p>
             </div>
-          ) : filteredClasses.length > 0 ? (
-            filteredClasses.map((cls, idx) => {
-              const isLocked = !isPremium && idx >= FREE_CLASS_LIMIT;
-              const classStudentCount = students.filter(s => s.classId === cls.id).length;
-              const classAtRisk = atRiskAll.filter(s => s.classId === cls.id).length;
-              return (
-                <div key={cls.id}
-                  className={`bg-white p-8 rounded-3xl shadow-sm border transition-all cursor-pointer group relative overflow-hidden
-                    ${isLocked ? 'border-gray-200 opacity-70 hover:shadow-md' : 'border-gray-100 hover:shadow-lg hover:-translate-y-1'}`}
-                  onClick={() => isLocked ? setShowPaywall('classes') : navigateTo('class', cls.id)}>
-                  {isLocked && (
-                    <div className="absolute inset-0 bg-white/70 backdrop-blur-[2px] flex flex-col items-center justify-center z-10 rounded-3xl">
-                      <div className="text-3xl mb-2">🔒</div>
-                      <p className="font-black text-gray-700 text-sm mb-1">Premium Only</p>
-                      <button onClick={e => { e.stopPropagation(); setShowPaywall('classes'); }}
-                        className="text-xs font-black text-amber-600 uppercase tracking-widest hover:text-amber-800 transition-colors">
-                        Upgrade to unlock →
-                      </button>
+          ) : filteredClasses.length > 0 ? (() => {
+            const subjectGroups = groupClasses(filteredClasses);
+            let globalIdx = 0;
+            return (
+              <div className="space-y-5">
+                {Object.entries(subjectGroups).map(([baseName, classIds]) => {
+                  const groupCls = classIds.map(id => filteredClasses.find(c => c.id === id)).filter(Boolean);
+                  const isSingle = groupCls.length === 1;
+
+                  if (isSingle) {
+                    const cls = groupCls[0];
+                    const idx = globalIdx++;
+                    const isLocked = !isPremium && idx >= FREE_CLASS_LIMIT;
+                    const cnt = students.filter(s => s.classId === cls.id).length;
+                    const risk = atRiskAll.filter(s => s.classId === cls.id).length;
+                    return (
+                      <div key={cls.id}
+                        className={`bg-white p-8 rounded-3xl shadow-sm border transition-all cursor-pointer group relative overflow-hidden
+                          ${isLocked ? 'border-gray-200 opacity-70' : 'border-gray-100 hover:shadow-lg hover:-translate-y-1'}`}
+                        onClick={() => isLocked ? setShowPaywall('classes') : navigateTo('class', cls.id)}>
+                        {isLocked && (
+                          <div className="absolute inset-0 bg-white/70 backdrop-blur-[2px] flex flex-col items-center justify-center z-10 rounded-3xl">
+                            <div className="text-3xl mb-2">🔒</div>
+                            <p className="font-black text-gray-700 text-sm mb-1">Premium Only</p>
+                            <button onClick={e => { e.stopPropagation(); setShowPaywall('classes'); }} className="text-xs font-black text-amber-600 uppercase tracking-widest hover:text-amber-800 transition-colors">Upgrade to unlock →</button>
+                          </div>
+                        )}
+                        <div className="flex justify-between items-start mb-6">
+                          <h2 className="text-2xl font-black text-gray-800 leading-tight">{cls.name}</h2>
+                          <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl group-hover:bg-blue-600 group-hover:text-white transition-colors"><BarChart3 size={20}/></div>
+                        </div>
+                        <div className="flex items-center justify-between mb-6">
+                          <span className="text-gray-500 font-medium flex items-center"><Users size={16} className="mr-2"/>{cnt} Students Enrolled</span>
+                          {risk > 0
+                            ? <span className="text-[10px] font-black text-red-500 bg-red-50 border border-red-100 px-2.5 py-1 rounded-lg">{risk} at risk</span>
+                            : <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-lg">All on track</span>}
+                        </div>
+                        <button className="flex items-center text-blue-600 font-bold hover:text-blue-800 uppercase tracking-widest text-xs">
+                          View Classroom Analytics <ChevronRight className="h-4 w-4 ml-1 group-hover:translate-x-1 transition-transform"/>
+                        </button>
+                      </div>
+                    );
+                  }
+
+                  // Multi-set subject — parent card with set tiles
+                  const totalStu = groupCls.reduce((n, c) => n + students.filter(s => s.classId === c.id).length, 0);
+                  const totalRisk = groupCls.reduce((n, c) => n + atRiskAll.filter(s => s.classId === c.id).length, 0);
+                  const isLocked = !isPremium && globalIdx >= FREE_CLASS_LIMIT;
+                  globalIdx += groupCls.length;
+
+                  return (
+                    <div key={baseName} className={`bg-white rounded-3xl border shadow-sm overflow-hidden relative ${isLocked ? 'opacity-70 border-gray-200' : 'border-gray-100'}`}>
+                      {isLocked && (
+                        <div className="absolute inset-0 bg-white/70 backdrop-blur-[2px] flex flex-col items-center justify-center z-10 rounded-3xl">
+                          <div className="text-3xl mb-2">🔒</div>
+                          <p className="font-black text-gray-700 text-sm mb-1">Premium Only</p>
+                          <button onClick={() => setShowPaywall('classes')} className="text-xs font-black text-amber-600 uppercase tracking-widest hover:text-amber-800 transition-colors">Upgrade to unlock →</button>
+                        </div>
+                      )}
+                      <div className="px-8 py-5 border-b border-gray-50 flex items-center justify-between cursor-pointer hover:bg-gray-50/50 transition-colors group"
+                        onClick={() => !isLocked && navigateTo('subject', baseName)}>
+                        <div>
+                          <div className="flex items-center gap-3 mb-0.5">
+                            <h2 className="text-xl font-black text-gray-900">{baseName}</h2>
+                            <span className="text-[10px] font-black text-blue-600 bg-blue-50 border border-blue-100 px-2.5 py-1 rounded-lg">{groupCls.length} sets</span>
+                          </div>
+                          <p className="text-gray-400 text-xs font-medium">{totalStu} students · {totalRisk > 0 ? `${totalRisk} at risk` : 'all on track'}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-black text-blue-500 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">Overview →</span>
+                          <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl group-hover:bg-blue-600 group-hover:text-white transition-colors"><BarChart3 size={18}/></div>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-gray-50">
+                        {groupCls.map(cls => {
+                          const setStu = students.filter(s => s.classId === cls.id).length;
+                          const setRisk = atRiskAll.filter(s => s.classId === cls.id).length;
+                          const label = cls.name.replace(baseName, '').trim().replace(/^[-/\s]+/, '') || cls.name;
+                          return (
+                            <div key={cls.id} className="px-6 py-5 hover:bg-blue-50/20 transition-colors cursor-pointer group/tile"
+                              onClick={() => navigateTo('class', cls.id)}>
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="font-black text-gray-800 text-sm">{label}</span>
+                                <ChevronRight size={13} className="text-gray-300 group-hover/tile:text-blue-400 transition-colors"/>
+                              </div>
+                              <div className="flex items-center gap-2.5">
+                                <span className="text-xs text-gray-400 font-medium flex items-center gap-1"><Users size={11}/>{setStu}</span>
+                                {setRisk > 0
+                                  ? <span className="text-[9px] font-black text-red-500 bg-red-50 border border-red-100 px-2 py-0.5 rounded-md">{setRisk} at risk</span>
+                                  : <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-md">on track</span>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
-                  )}
-                  <div className="flex justify-between items-start mb-6">
-                    <h2 className="text-2xl font-black text-gray-800 leading-tight">{cls.name}</h2>
-                    <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                      <BarChart3 size={20} />
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between mb-6">
-                    <span className="text-gray-500 font-medium flex items-center">
-                      <Users size={16} className="mr-2"/> {classStudentCount} Students Enrolled
-                    </span>
-                    {classAtRisk > 0 ? (
-                      <span className="text-[10px] font-black text-red-500 bg-red-50 border border-red-100 px-2.5 py-1 rounded-lg">
-                        {classAtRisk} at risk
-                      </span>
-                    ) : classStudentCount > 0 ? (
-                      <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-lg">
-                        All on track
-                      </span>
-                    ) : null}
-                  </div>
-                  <button className="flex items-center text-blue-600 font-bold hover:text-blue-800 uppercase tracking-widest text-xs">
-                    View Classroom Analytics <ChevronRight className="h-4 w-4 ml-1 group-hover:translate-x-1 transition-transform" />
-                  </button>
-                </div>
-              );
-            })
-          ) : (
-            <div className="col-span-full py-12 text-center text-gray-500 bg-white rounded-2xl border border-dashed border-gray-200 font-medium">
+                  );
+                })}
+              </div>
+            );
+          })() : (
+            <div className="py-12 text-center text-gray-500 bg-white rounded-2xl border border-dashed border-gray-200 font-medium">
               No subjects found matching "{searchQuery}"
             </div>
           )}
         </div>
 
+      </div>
+    );
+  };
+
+  // ── SUBJECT OVERVIEW PAGE ────────────────────────────────────────────────────
+  const SubjectOverview = () => {
+    const baseName = view.id;
+    const subjectGroups = groupClasses(classes);
+    const setIds = subjectGroups[baseName] || [];
+    const sets = setIds.map(id => classes.find(c => c.id === id)).filter(Boolean);
+    const [expandedSet, setExpandedSet] = React.useState(null);
+    if (!sets.length) return <TeacherHome />;
+
+    const allStu = sets.flatMap(cls => students.filter(s => s.classId === cls.id));
+    const allVals = allStu.flatMap(stu => scores.filter(sc => sc.studentId === stu.id).map(sc => sc.score));
+    const combinedMean = allVals.length ? allVals.reduce((a,b)=>a+b,0)/allVals.length : 0;
+
+    const atRiskBySets = sets.map(cls => {
+      const clsStu = students.filter(s => s.classId === cls.id);
+      const atRisk = clsStu.flatMap(stu => {
+        const vals = scores.filter(sc => sc.studentId === stu.id).map(sc => sc.score);
+        if (vals.length < 2) return [];
+        const mean = vals.reduce((a,b)=>a+b,0)/vals.length;
+        const last = vals[vals.length-1];
+        const n = vals.length;
+        let sx=0,sy=0,sxy=0,sxx=0;
+        vals.forEach((v,i)=>{sx+=i;sy+=v;sxy+=i*v;sxx+=i*i;});
+        const slope = n>1?(n*sxy-sx*sy)/(n*sxx-sx*sx):0;
+        let rs=0; if(slope<-0.5) rs+=Math.abs(slope)*2; if(last<mean*0.9) rs+=(mean-last)*0.5;
+        const rL = rs>15?'High':rs>7?'Medium':null;
+        if(!rL) return [];
+        return [{id:stu.id,name:stu.name,classId:cls.id,mean,slope,riskLevel:rL}];
+      });
+      return {cls, atRisk};
+    });
+
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <div>
+            <button onClick={() => navigateTo('home')}
+              className="flex items-center text-gray-400 hover:text-gray-900 font-black text-xs uppercase tracking-widest mb-3 transition-colors">
+              <ArrowLeft className="h-4 w-4 mr-1.5"/> Dashboard
+            </button>
+            <h1 className="text-4xl font-black text-gray-900 tracking-tight">{baseName}</h1>
+            <p className="text-gray-400 font-medium text-sm mt-1">
+              {sets.length} sets · {allStu.length} students total · {combinedMean.toFixed(1)}% combined average
+            </p>
+          </div>
+        </div>
+
+        {/* Set comparison cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          {sets.map(cls => {
+            const setStu = students.filter(s => s.classId === cls.id);
+            const setVals = setStu.flatMap(stu => scores.filter(sc => sc.studentId === stu.id).map(sc => sc.score));
+            const mean = setVals.length ? setVals.reduce((a,b)=>a+b,0)/setVals.length : 0;
+            const setRisk = atRiskBySets.find(r => r.cls.id === cls.id)?.atRisk.length || 0;
+            const label = cls.name.replace(baseName,'').trim().replace(/^[-/\s]+/,'') || cls.name;
+            return (
+              <div key={cls.id}
+                className="bg-white p-7 rounded-3xl border border-gray-100 shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all cursor-pointer group"
+                onClick={() => navigateTo('class', cls.id)}>
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Set</p>
+                    <h3 className="text-2xl font-black text-gray-900">{label}</h3>
+                  </div>
+                  <div className="p-2 bg-blue-50 text-blue-600 rounded-xl group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                    <BarChart3 size={16}/>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-gray-400 text-sm font-medium flex items-center gap-1.5"><Users size={13}/>{setStu.length} students</span>
+                  <span className="text-2xl font-black text-gray-900">{mean.toFixed(1)}%</span>
+                </div>
+                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden mb-3">
+                  <div className={`h-full rounded-full transition-all duration-700 ${mean>=75?'bg-emerald-500':mean>=55?'bg-blue-500':'bg-orange-500'}`} style={{width:`${mean}%`}}/>
+                </div>
+                <div className="flex items-center justify-between">
+                  {setRisk > 0
+                    ? <span className="text-[10px] font-black text-red-500 bg-red-50 border border-red-100 px-2.5 py-1 rounded-lg">{setRisk} at risk</span>
+                    : <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-lg">All on track</span>}
+                  <span className="text-xs font-black text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">Open →</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Per-set at-risk panels */}
+        {atRiskBySets.some(r => r.atRisk.length > 0) && (
+          <div className="bg-white rounded-3xl border border-red-100 shadow-sm overflow-hidden">
+            <div className="px-7 py-5 border-b border-red-50">
+              <h3 className="font-black text-gray-900 text-sm">At-Risk Students by Set</h3>
+              <p className="text-gray-400 text-xs font-medium mt-0.5">
+                {atRiskBySets.reduce((n,r)=>n+r.atRisk.length,0)} flagged across {sets.length} sets
+              </p>
+            </div>
+            {atRiskBySets.map(({cls, atRisk}) => {
+              if (!atRisk.length) return null;
+              const label = cls.name.replace(baseName,'').trim().replace(/^[-/\s]+/,'') || cls.name;
+              const isOpen = expandedSet === cls.id;
+              return (
+                <div key={cls.id} className="border-b border-gray-50 last:border-0">
+                  <button onClick={() => setExpandedSet(isOpen ? null : cls.id)}
+                    className="w-full px-7 py-4 flex items-center justify-between hover:bg-gray-50/50 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <span className="font-black text-gray-800 text-sm">{label}</span>
+                      <span className="text-[10px] font-black text-red-500 bg-red-50 border border-red-100 px-2 py-0.5 rounded-md">{atRisk.length} at risk</span>
+                    </div>
+                    <ChevronRight size={15} className={`text-gray-300 transition-transform duration-200 ${isOpen?'rotate-90':''}`}/>
+                  </button>
+                  {isOpen && (
+                    <div className="divide-y divide-gray-50 border-t border-red-50">
+                      {atRisk.map(s => (
+                        <div key={s.id} className="px-7 py-3 flex items-center gap-3 hover:bg-red-50/20 transition-colors">
+                          <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${s.riskLevel==='High'?'bg-red-500':'bg-orange-400'}`}/>
+                          <span className="font-black text-gray-900 text-sm flex-1">{s.name}</span>
+                          <span className="text-xs font-bold text-gray-400">{s.mean.toFixed(1)}%</span>
+                          <span className={`text-xs font-bold flex items-center gap-1 ${s.slope>0?'text-emerald-600':'text-red-500'}`}>
+                            {s.slope>0?<TrendingUp size={11}/>:<TrendingDown size={11}/>}{s.slope>0?'+':''}{s.slope.toFixed(1)}
+                          </span>
+                          <button onClick={()=>navigateTo('student',s.id)}
+                            className="text-[10px] font-black text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all shrink-0">
+                            View
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     );
   };
@@ -2226,52 +2446,62 @@ export default function App() {
         )}
         </div>
 
-        {/* ── AT-RISK PANEL (Classroom) ── */}
+        {/* ── AT-RISK PANEL (Classroom) — collapsible ── */}
         {(() => {
           const atRisk = classData.studentStats.filter(s => s.riskLevel === 'High' || s.riskLevel === 'Medium')
             .sort((a,b) => (b.riskLevel==='High'?1:0)-(a.riskLevel==='High'?1:0));
           if (!atRisk.length) return null;
-          return (
-            <div className="bg-white rounded-3xl border border-red-100 shadow-sm overflow-hidden">
-              <div className="px-8 py-5 border-b border-red-50 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-red-50 flex items-center justify-center">
-                    <AlertTriangle className="h-4 w-4 text-red-500" />
-                  </div>
-                  <div>
-                    <h3 className="font-black text-gray-900 text-sm">Students Needing Attention</h3>
-                    <p className="text-gray-400 text-xs font-medium">{atRisk.length} student{atRisk.length!==1?'s':''} flagged in this class</p>
-                  </div>
-                </div>
-                <span className="text-[10px] font-black text-red-500 bg-red-50 border border-red-100 px-3 py-1.5 rounded-xl uppercase tracking-widest">
-                  {atRisk.filter(s=>s.riskLevel==='High').length} High · {atRisk.filter(s=>s.riskLevel==='Medium').length} Medium
-                </span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-0 divide-y sm:divide-y-0 sm:divide-x divide-gray-50">
-                {atRisk.map(s => (
-                  <div key={s.id} className="px-6 py-4 hover:bg-red-50/20 transition-colors">
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <span className="font-black text-gray-900 text-sm leading-tight">{s.name}</span>
-                      <span className={`text-[9px] font-black px-2 py-0.5 rounded-lg border uppercase tracking-widest shrink-0 ${s.riskLevel==='High' ? 'text-red-600 bg-red-50 border-red-200' : 'text-orange-600 bg-orange-50 border-orange-200'}`}>
-                        {s.riskLevel}
-                      </span>
+          const AtRiskPanel = () => {
+            const [open, setOpen] = React.useState(false);
+            return (
+              <div className="bg-white rounded-3xl border border-red-100 shadow-sm overflow-hidden">
+                <button onClick={() => setOpen(v => !v)}
+                  className="w-full px-8 py-5 flex items-center justify-between hover:bg-gray-50/40 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
+                      <AlertTriangle className="h-4 w-4 text-red-500" />
                     </div>
-                    <div className="flex items-center gap-3 mb-3">
-                      <span className="text-xs font-bold text-gray-500">Avg: <span className="text-gray-800">{s.mean.toFixed(1)}%</span></span>
-                      <span className={`text-xs font-bold flex items-center gap-0.5 ${s.slope > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                        {s.slope > 0 ? <TrendingUp size={11}/> : <TrendingDown size={11}/>}
-                        {s.slope > 0 ? '+' : ''}{s.slope.toFixed(1)}
-                      </span>
+                    <div className="text-left">
+                      <h3 className="font-black text-gray-900 text-sm">Students Needing Attention</h3>
+                      <p className="text-gray-400 text-xs font-medium">{atRisk.length} flagged · {atRisk.filter(s=>s.riskLevel==="High").length} high priority</p>
                     </div>
-                    <button onClick={() => navigateTo('student', s.id)}
-                      className="w-full text-[10px] font-black text-blue-600 bg-blue-50 py-1.5 rounded-lg uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all">
-                      View Profile →
-                    </button>
                   </div>
-                ))}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-[10px] font-black text-red-500 bg-red-50 border border-red-100 px-3 py-1.5 rounded-xl uppercase tracking-widest">
+                      {atRisk.filter(s=>s.riskLevel==="High").length} High · {atRisk.filter(s=>s.riskLevel==="Medium").length} Med
+                    </span>
+                    <ChevronRight size={15} className={`text-gray-300 transition-transform duration-200 ${open ? "rotate-90" : ""}`}/>
+                  </div>
+                </button>
+                {open && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-0 divide-y sm:divide-y-0 sm:divide-x divide-gray-50 border-t border-red-50">
+                    {atRisk.map(s => (
+                      <div key={s.id} className="px-6 py-4 hover:bg-red-50/20 transition-colors">
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <span className="font-black text-gray-900 text-sm leading-tight">{s.name}</span>
+                          <span className={`text-[9px] font-black px-2 py-0.5 rounded-lg border uppercase tracking-widest shrink-0 ${s.riskLevel==="High" ? "text-red-600 bg-red-50 border-red-200" : "text-orange-600 bg-orange-50 border-orange-200"}`}>
+                            {s.riskLevel}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 mb-3">
+                          <span className="text-xs font-bold text-gray-500">Avg: <span className="text-gray-800">{s.mean.toFixed(1)}%</span></span>
+                          <span className={`text-xs font-bold flex items-center gap-0.5 ${s.slope > 0 ? "text-emerald-600" : "text-red-500"}`}>
+                            {s.slope > 0 ? <TrendingUp size={11}/> : <TrendingDown size={11}/>}
+                            {s.slope > 0 ? "+" : ""}{s.slope.toFixed(1)}
+                          </span>
+                        </div>
+                        <button onClick={() => navigateTo("student", s.id)}
+                          className="w-full text-[10px] font-black text-blue-600 bg-blue-50 py-1.5 rounded-lg uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all">
+                          View Profile →
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
-          );
+            );
+          };
+          return <AtRiskPanel />;
         })()}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 w-full">
@@ -2915,6 +3145,7 @@ export default function App() {
           {showSettings ? <SettingsPage /> : (
             <>
               {view.type === 'home' && <TeacherHome />}
+              {view.type === 'subject' && (classes.length > 0 ? <SubjectOverview /> : <TeacherHome />)}
               {view.type === 'class' && (classes.length > 0 ? <ClassDashboard /> : <TeacherHome />)}
               {view.type === 'student' && (classes.length > 0 ? <StudentDashboard /> : <TeacherHome />)}
             </>
