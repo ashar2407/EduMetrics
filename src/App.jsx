@@ -378,23 +378,24 @@ export default function App() {
         return;
       }
 
-      // ── STEP 5: Auto-detect max score from data if column missing ──────────────
-      // If scores look like raw marks (>100 or consistent round numbers like /50, /80)
-      // we'll try to infer the max from the data itself
+      // ── STEP 5: Auto-detect max score — ONLY when scores are clearly raw marks ──
+      // We only infer a max when the highest score is well above 100 (clearly not a %)
+      // OR when an explicit maxScore column exists. Never guess for 0-100 data.
       let inferredMax = null;
       if (!headerMap.maxScore && headerMap.score && !headerMap.percentage) {
         const scoreVals = dataLines.slice(0, 30).map(l => {
           const vals = parseLine(l);
           const idx = rawHeaders.indexOf(headerMap.score);
           return vals[idx] || '';
-        }).filter(v => v && !/\//.test(v)); // skip "45/50" style — handled separately
+        }).filter(v => v && !/\//.test(v));
         const nums = scoreVals.map(v => parseFloat(v.replace(/[^0-9.-]/g, ''))).filter(n => !isNaN(n));
         const maxVal = Math.max(...nums);
-        // Only infer if values are clearly raw marks (common max values like 20,25,40,50,60,80,100,120)
-        const commonMaxes = [10,15,20,25,30,40,50,60,75,80,100,120,150,200];
-        if (maxVal > 0 && maxVal <= 200 && nums.every(n => n <= maxVal)) {
+        // Only infer if the highest value is clearly above 100 (e.g. 120/150 out of marks)
+        // This prevents incorrectly dividing normal percentage scores
+        if (maxVal > 100) {
+          const commonMaxes = [110,120,150,200];
           const closest = commonMaxes.find(m => m >= maxVal);
-          if (closest && maxVal / closest > 0.3) inferredMax = closest;
+          if (closest) inferredMax = closest;
         }
       }
 
@@ -438,17 +439,13 @@ export default function App() {
             rawScore = parseFloat(scoreStr);
           } else {
             rawScore = parseGradeToNumber(scoreStr, activeFormat);
-            // Grade formats (A-level, GCSE, IB etc.) already return 0-100 — skip max division
-            const isGradeFormat = activeFormat !== 'auto' && activeFormat !== 'percentage';
-            if (!isGradeFormat) {
-              if (headerMap.maxScore && row[headerMap.maxScore] && !isNaN(rawScore)) {
-                const max = parseFloat(row[headerMap.maxScore]);
-                if (!isNaN(max) && max > 0 && rawScore <= max) rawScore = (rawScore / max) * 100;
-              } else if (inferredMax && !isNaN(rawScore) && rawScore > 100) {
-                rawScore = (rawScore / inferredMax) * 100;
-              } else if (inferredMax && !isNaN(rawScore) && activeFormat === 'auto' && inferredMax !== 100) {
-                rawScore = (rawScore / inferredMax) * 100;
-              }
+            // Apply max column if present (works for all formats including grade formats)
+            if (headerMap.maxScore && row[headerMap.maxScore] && !isNaN(rawScore)) {
+              const max = parseFloat(row[headerMap.maxScore]);
+              if (!isNaN(max) && max > 0 && rawScore <= max) rawScore = (rawScore / max) * 100;
+            } else if (inferredMax && !isNaN(rawScore) && rawScore > 100) {
+              // Only divide by inferredMax if score is clearly above 100 (raw marks)
+              rawScore = (rawScore / inferredMax) * 100;
             }
           }
         }
