@@ -200,6 +200,18 @@ export default function App() {
           else if (!headerMap.studentName && aliases.studentName.some(kw => n === kw || n.includes(kw))) headerMap.studentName = h;
       });
 
+      // Helper: verify a column's actual values look like grades/numbers, not text like "GCSE"
+      const colHasGradeData = (h) => {
+        const sampleVals = dataLines.slice(0, 10).map(line => {
+          const vals = line.split(',');
+          const idx = rawHeaders.indexOf(h);
+          return idx >= 0 ? (vals[idx] || '').trim() : '';
+        }).filter(v => v !== '');
+        if (sampleVals.length === 0) return false;
+        const gradeCount = sampleVals.filter(v => !isNaN(parseFloat(v)) || /^[a-fA-F][+\-*]?$|^[1-9]$|^\d+:\d+$|^(1st|2:1|2:2|3rd|first|fail)$/i.test(v)).length;
+        return gradeCount / sampleVals.length >= 0.7;
+      };
+
       // Pass 3: Scores, Subjects, Dates
       rawHeaders.forEach(h => {
           if ([headerMap.studentId, headerMap.studentName, headerMap.firstName, headerMap.lastName].includes(h)) return;
@@ -207,7 +219,8 @@ export default function App() {
 
           if (!headerMap.maxScore && aliases.maxScore.some(kw => n.includes(kw))) headerMap.maxScore = h;
           else if (!headerMap.percentage && aliases.percentage.some(kw => n.includes(kw))) headerMap.percentage = h;
-          else if (!headerMap.score && aliases.score.some(kw => n === kw || n.includes(kw))) headerMap.score = h;
+          // Only treat as score column if actual data values look like grades, not text like "GCSE"
+          else if (!headerMap.score && aliases.score.some(kw => n === kw || n.includes(kw)) && colHasGradeData(h)) headerMap.score = h;
           else if (!headerMap.subject && aliases.subject.some(kw => n.includes(kw))) headerMap.subject = h;
           else if (!headerMap.topic && aliases.topic.some(kw => n.includes(kw))) headerMap.topic = h;
           else if (!headerMap.date && aliases.date.some(kw => n.includes(kw))) headerMap.date = h;
@@ -217,7 +230,7 @@ export default function App() {
       // columns contain numeric/grade data (e.g. one column per subject like Maths, English...).
       // If so, pivot the data from wide to long format automatically.
       if (!headerMap.score && !headerMap.percentage) {
-        const knownMetaCols = [headerMap.studentId, headerMap.studentName, headerMap.firstName, headerMap.lastName, headerMap.subject, headerMap.date].filter(Boolean);
+        const knownMetaCols = [headerMap.studentId, headerMap.studentName, headerMap.firstName, headerMap.lastName, headerMap.subject, headerMap.date, headerMap.score, headerMap.percentage, headerMap.maxScore].filter(Boolean);
         const candidateSubjectCols = rawHeaders.filter(h => !knownMetaCols.includes(h));
 
         // Check if most candidate columns look like grade columns (numeric or grade letters)
