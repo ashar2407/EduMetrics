@@ -146,245 +146,170 @@ export default function App() {
 
   const processCSV = (csvText, activeFormat = gradeFormat, silent = false, overrideUser = user) => {
     try {
-      // 1. Clean and split lines, ignoring empty ones at the end
       let lines = csvText.trim().split('\n').map(l => l.trim()).filter(l => l);
-      if (lines.length < 2) { 
-        if (!silent) alert("The file appears to be empty or invalid."); 
-        return; 
-      }
+      if (lines.length < 2) { if (!silent) alert("The file appears to be empty or invalid."); return; }
 
-      // 2. SMART HEADER DETECTION (Finds the row with actual headers, skipping titles)
-      let headerRowIndex = 0;
-      let maxScoreFound = -1;
-      
+      // Smart header row detection
+      let headerRowIndex = 0, maxScore = -1;
       for (let i = 0; i < Math.min(20, lines.length); i++) {
         const cols = lines[i].toLowerCase().split(',');
-        // Score this row based on how many "school data" keywords it contains
-        let rowScore = cols.filter(c => c.includes('name') || c.includes('id') || c.includes('score') || c.includes('grade') || c.includes('subject') || c.includes('test') || c.includes('date')).length;
-        if (rowScore > maxScoreFound && cols.length >= 3) {
-          maxScoreFound = rowScore;
-          headerRowIndex = i;
-        }
+        let s = cols.filter(c => c.includes('name') || c.includes('id') || c.includes('score') || c.includes('grade') || c.includes('subject') || c.includes('test') || c.includes('date')).length;
+        if (s > maxScore && cols.length >= 3) { maxScore = s; headerRowIndex = i; }
       }
-
       const rawHeaders = lines[headerRowIndex].split(',').map(h => h.replace(/^"|"$/g, '').trim());
       const dataLines = lines.slice(headerRowIndex + 1);
-      
+
+      // Sample a column's values to check if they look like grades/numbers
+      const colIsNumeric = (h) => {
+        const idx = rawHeaders.indexOf(h);
+        if (idx < 0) return false;
+        const vals = dataLines.slice(0, 15).map(l => l.split(',')[idx] || '').map(v => v.trim()).filter(v => v);
+        if (!vals.length) return false;
+        const ok = vals.filter(v => !isNaN(parseFloat(v)) || /^[a-gA-G][+\-*]?$|^[1-9]$|^\d+[:.:]\d+$|^(1st|2:1|2:2|3rd|first|fail|pass)$/i.test(v)).length;
+        return ok / vals.length >= 0.7;
+      };
+
       const aliases = {
-        studentId: ['studentid', 'student_id', 'id', 'upn', 'urn', 'code', 'ref', 'number', 'learnerid', 'identifier'],
-        firstName: ['first', 'forename', 'given'],
-        lastName: ['last', 'surname', 'family'],
-        studentName: ['studentname', 'student_name', 'name', 'fullname', 'pupil', 'learner', 'student'],
-        subject: ['subject', 'class', 'course', 'module', 'program', 'branch'],
-        topic: ['testname', 'test_name', 'test', 'assessment', 'topic', 'unit', 'chapter', 'concept', 'assignment'],
-        date: ['testdate', 'test_date', 'date', 'time', 'timestamp', 'semester', 'term', 'week'],
-        percentage: ['percentage', 'pct', '%', 'percent'],
-        maxScore: ['max', 'outof', 'total', 'max_score', 'maxscore', 'possible'],
-        score: ['score', 'raw_score', 'grade', 'mark', 'result', 'points']
+        studentId:   ['studentid','student_id','id','upn','urn','code','ref','number','learnerid','identifier'],
+        firstName:   ['first','forename','given'],
+        lastName:    ['last','surname','family'],
+        studentName: ['studentname','student_name','name','fullname','pupil','learner','student'],
+        subject:     ['subject','class','course','module','program','branch'],
+        topic:       ['testname','test_name','test','assessment','topic','unit','chapter','concept','assignment'],
+        date:        ['testdate','test_date','date','time','timestamp','semester','term','week'],
+        percentage:  ['percentage','pct','percent'],
+        maxScore:    ['max','outof','total','max_score','maxscore','possible'],
+        score:       ['score','raw_score','grade','mark','result','points'],
       };
 
-      const headerMap = { studentId: null, firstName: null, lastName: null, studentName: null, subject: null, topic: null, date: null, percentage: null, maxScore: null, score: null };
-      
-      // Pass 1: Strict ID
+      const hm = { studentId:null, firstName:null, lastName:null, studentName:null, subject:null, topic:null, date:null, percentage:null, maxScore:null, score:null };
+
+      // Pass 1: ID
       rawHeaders.forEach(h => {
-          let n = h.toLowerCase().replace(/[^a-z]/g, '');
-          if (!headerMap.studentId && aliases.studentId.some(kw => n === kw || n.endsWith('id') || n === 'code')) headerMap.studentId = h;
+        const n = h.toLowerCase().replace(/[^a-z]/g,'');
+        if (!hm.studentId && aliases.studentId.some(kw => n === kw || n.endsWith('id') || n === 'code')) hm.studentId = h;
+      });
+      // Pass 2: Names
+      rawHeaders.forEach(h => {
+        if (h === hm.studentId) return;
+        const n = h.toLowerCase().replace(/[^a-z]/g,'');
+        if (!hm.firstName && aliases.firstName.some(kw => n.includes(kw))) hm.firstName = h;
+        else if (!hm.lastName && aliases.lastName.some(kw => n.includes(kw))) hm.lastName = h;
+        else if (!hm.studentName && aliases.studentName.some(kw => n === kw || n.includes(kw))) hm.studentName = h;
+      });
+      // Pass 3: Scores/Subjects/Dates — only match score if column actually has numeric/grade data
+      rawHeaders.forEach(h => {
+        if ([hm.studentId, hm.studentName, hm.firstName, hm.lastName].includes(h)) return;
+        const n = h.toLowerCase().replace(/[^a-z]/g,'');
+        if (!hm.maxScore    && aliases.maxScore.some(kw => n.includes(kw)))                          hm.maxScore = h;
+        else if (!hm.percentage && aliases.percentage.some(kw => n.includes(kw)))                   hm.percentage = h;
+        else if (!hm.score  && aliases.score.some(kw => n === kw || n.includes(kw)) && colIsNumeric(h)) hm.score = h;
+        else if (!hm.subject && aliases.subject.some(kw => n.includes(kw)))                         hm.subject = h;
+        else if (!hm.topic  && aliases.topic.some(kw => n.includes(kw)))                            hm.topic = h;
+        else if (!hm.date   && aliases.date.some(kw => n.includes(kw)))                             hm.date = h;
       });
 
-      // Pass 2: Names (First/Last split or Full Name)
-      rawHeaders.forEach(h => {
-          if (h === headerMap.studentId) return;
-          let n = h.toLowerCase().replace(/[^a-z]/g, '');
-          if (!headerMap.firstName && aliases.firstName.some(kw => n.includes(kw))) headerMap.firstName = h;
-          else if (!headerMap.lastName && aliases.lastName.some(kw => n.includes(kw))) headerMap.lastName = h;
-          else if (!headerMap.studentName && aliases.studentName.some(kw => n === kw || n.includes(kw))) headerMap.studentName = h;
-      });
-
-      // Helper: verify a column's actual values look like grades/numbers, not text like "GCSE"
-      const colHasGradeData = (h) => {
-        const sampleVals = dataLines.slice(0, 10).map(line => {
-          const vals = line.split(',');
-          const idx = rawHeaders.indexOf(h);
-          return idx >= 0 ? (vals[idx] || '').trim() : '';
-        }).filter(v => v !== '');
-        if (sampleVals.length === 0) return false;
-        const gradeCount = sampleVals.filter(v => !isNaN(parseFloat(v)) || /^[a-fA-F][+\-*]?$|^[1-9]$|^\d+:\d+$|^(1st|2:1|2:2|3rd|first|fail)$/i.test(v)).length;
-        return gradeCount / sampleVals.length >= 0.7;
-      };
-
-      // Pass 3: Scores, Subjects, Dates
-      rawHeaders.forEach(h => {
-          if ([headerMap.studentId, headerMap.studentName, headerMap.firstName, headerMap.lastName].includes(h)) return;
-          let n = h.toLowerCase().replace(/[^a-z]/g, '');
-
-          if (!headerMap.maxScore && aliases.maxScore.some(kw => n.includes(kw))) headerMap.maxScore = h;
-          else if (!headerMap.percentage && aliases.percentage.some(kw => n.includes(kw))) headerMap.percentage = h;
-          // Only treat as score column if actual data values look like grades, not text like "GCSE"
-          else if (!headerMap.score && aliases.score.some(kw => n === kw || n.includes(kw)) && colHasGradeData(h)) headerMap.score = h;
-          else if (!headerMap.subject && aliases.subject.some(kw => n.includes(kw))) headerMap.subject = h;
-          else if (!headerMap.topic && aliases.topic.some(kw => n.includes(kw))) headerMap.topic = h;
-          else if (!headerMap.date && aliases.date.some(kw => n.includes(kw))) headerMap.date = h;
-      });
-
-      // WIDE FORMAT DETECTION: If no score/percentage column found, check if multiple
-      // columns contain numeric/grade data (e.g. one column per subject like Maths, English...).
-      // If so, pivot the data from wide to long format automatically.
-      if (!headerMap.score && !headerMap.percentage) {
-        const knownMetaCols = [headerMap.studentId, headerMap.studentName, headerMap.firstName, headerMap.lastName, headerMap.subject, headerMap.date, headerMap.score, headerMap.percentage, headerMap.maxScore].filter(Boolean);
-        const candidateSubjectCols = rawHeaders.filter(h => !knownMetaCols.includes(h));
-
-        // Check if most candidate columns look like grade columns (numeric or grade letters)
-        const looksLikeGradeCol = (h) => {
-          const sampleVals = dataLines.slice(0, 10).map(line => {
-            const vals = line.split(',');
-            const idx = rawHeaders.indexOf(h);
-            return idx >= 0 ? (vals[idx] || '').trim() : '';
-          }).filter(v => v !== '');
-          // Accept if most values are short (grades are short: "A", "7", "B+", "2:1" etc)
-          const shortEnough = sampleVals.filter(v => v.length <= 4).length;
-          return sampleVals.length > 0 && shortEnough / sampleVals.length >= 0.7;
-        };
-
-        const subjectCols = candidateSubjectCols.filter(looksLikeGradeCol);
-
+      // WIDE FORMAT: no score/% col found — check if multiple columns ARE the subjects (one col per subject)
+      if (!hm.score && !hm.percentage) {
+        const metaCols = Object.values(hm).filter(Boolean);
+        const subjectCols = rawHeaders.filter(h => !metaCols.includes(h) && colIsNumeric(h));
         if (subjectCols.length >= 2) {
-          // Pivot: turn each subject column into its own row
-          const pivotedLines = [];
-          for (let i = 0; i < dataLines.length; i++) {
-            if (!dataLines[i].trim()) continue;
-            let vals = [];
-            let inQ = false, cur = "";
-            for (let ch of dataLines[i]) {
+          const pivoted = [];
+          for (const line of dataLines) {
+            if (!line.trim()) continue;
+            const vals = []; let inQ = false, cur = '';
+            for (const ch of line) {
               if (ch === '"') inQ = !inQ;
-              else if (ch === ',' && !inQ) { vals.push(cur.trim()); cur = ""; }
+              else if (ch === ',' && !inQ) { vals.push(cur.trim()); cur = ''; }
               else cur += ch;
             }
             vals.push(cur.trim());
             const row = {};
-            rawHeaders.forEach((h, idx) => { row[h] = vals[idx] !== undefined ? vals[idx] : ''; });
-
-            for (const subCol of subjectCols) {
-              const gradeVal = row[subCol];
-              if (!gradeVal) continue;
-              // Build a synthetic CSV row: name, id, subject, score
-              const nameField = headerMap.studentName ? row[headerMap.studentName] : (headerMap.firstName ? `${row[headerMap.firstName] || ''} ${row[headerMap.lastName] || ''}`.trim() : '');
-              const idField = headerMap.studentId ? row[headerMap.studentId] : 'N/A';
-              // Escape commas in fields
-              const esc = (v) => v.includes(',') ? `"${v}"` : v;
-              pivotedLines.push(`${esc(nameField)},${esc(idField)},${esc(subCol)},Assessment 1,${esc(gradeVal)}`);
+            rawHeaders.forEach((h, i) => { row[h] = vals[i] !== undefined ? vals[i] : ''; });
+            const name = hm.studentName ? row[hm.studentName] : (hm.firstName ? (row[hm.firstName]+' '+row[hm.lastName]).trim() : '');
+            const id   = hm.studentId ? row[hm.studentId] : 'N/A';
+            const esc  = v => (v && v.includes(',')) ? '"'+v+'"' : (v || '');
+            for (const col of subjectCols) {
+              const grade = row[col]; if (!grade) continue;
+              pivoted.push(esc(name)+','+esc(id)+','+esc(col)+',Assessment 1,'+esc(grade));
             }
           }
-          if (pivotedLines.length > 0) {
-            const pivotedCSV = "Student Name,Student ID,Subject,Date,Score\n" + pivotedLines.join('\n');
-            return processCSV(pivotedCSV, activeFormat, silent, overrideUser);
+          if (pivoted.length > 0) {
+            return processCSV('Student Name,Student ID,Subject,Date,Score\n' + pivoted.join('\n'), activeFormat, silent, overrideUser);
           }
         }
-
-        if (!silent) alert("Grade Lens AI could not automatically locate a 'Score' or 'Percentage' column. Please check your file headers."); 
+        if (!silent) alert("Grade Lens could not find a Score or Percentage column. Please check your file headers.");
         return;
       }
 
-      const newClassesMap = {};
-      const newStudentsMap = {};
-      const newAssessmentsMap = {};
-      const newScores = [];
+      // Standard long-format processing
+      const newClassesMap = {}, newStudentsMap = {}, newAssessmentsMap = {}, newScores = [];
       let fallbackCounter = 1;
 
-      for (let i = 0; i < dataLines.length; i++) {
-        if (!dataLines[i].trim()) continue;
-        // Parse CSV line handling commas inside quotes
-        let values = [];
-        let inQuotes = false;
-        let currentValue = "";
-        for (let char of dataLines[i]) {
-            if (char === '"') inQuotes = !inQuotes;
-            else if (char === ',' && !inQuotes) { values.push(currentValue.trim()); currentValue = ""; }
-            else currentValue += char;
+      for (const line of dataLines) {
+        if (!line.trim()) continue;
+        const values = []; let inQuotes = false, cur = '';
+        for (const ch of line) {
+          if (ch === '"') inQuotes = !inQuotes;
+          else if (ch === ',' && !inQuotes) { values.push(cur.trim()); cur = ''; }
+          else cur += ch;
         }
-        values.push(currentValue.trim());
-
+        values.push(cur.trim());
         const row = {};
-        rawHeaders.forEach((header, index) => { row[header] = values[index] !== undefined ? values[index] : ''; });
+        rawHeaders.forEach((h, i) => { row[h] = values[i] !== undefined ? values[i] : ''; });
 
-        // Build Name smartly
-        let nameVal = headerMap.studentName ? row[headerMap.studentName] : '';
-        if (!nameVal && headerMap.firstName && headerMap.lastName) {
-            nameVal = `${row[headerMap.firstName]} ${row[headerMap.lastName]}`.trim();
-        } else if (!nameVal && (headerMap.firstName || headerMap.lastName)) {
-            nameVal = (row[headerMap.firstName] || row[headerMap.lastName]).trim();
-        }
+        let nameVal = hm.studentName ? row[hm.studentName] : '';
+        if (!nameVal && hm.firstName && hm.lastName) nameVal = (row[hm.firstName]+' '+row[hm.lastName]).trim();
+        else if (!nameVal && (hm.firstName || hm.lastName)) nameVal = (row[hm.firstName] || row[hm.lastName] || '').trim();
+        const idVal = hm.studentId && row[hm.studentId] ? row[hm.studentId] : 'N/A';
 
-        const idVal = headerMap.studentId && row[headerMap.studentId] ? row[headerMap.studentId] : 'N/A';
-        
-        // Smart Score Calculation
         let rawScore = NaN;
-        if (headerMap.percentage && row[headerMap.percentage]) {
-            rawScore = parseFloat(row[headerMap.percentage].replace(/[^0-9.-]/g, ''));
-        } else if (headerMap.score && row[headerMap.score]) {
-            let scoreStr = String(row[headerMap.score]);
-            // Handle fractional inputs like "45/50" natively
-            if (scoreStr.includes('/')) {
-                let parts = scoreStr.split('/');
-                let s = parseFloat(parts[0]);
-                let m = parseFloat(parts[1]);
-                if (!isNaN(s) && !isNaN(m) && m > 0) rawScore = (s/m)*100;
-            } else {
-                rawScore = parseGradeToNumber(scoreStr, activeFormat);
-                if (headerMap.maxScore && row[headerMap.maxScore] && !isNaN(rawScore) && activeFormat === 'auto') {
-                    let max = parseFloat(row[headerMap.maxScore]);
-                    if (!isNaN(max) && max > 0) rawScore = (rawScore / max) * 100;
-                }
+        if (hm.percentage && row[hm.percentage]) {
+          rawScore = parseFloat(row[hm.percentage].replace(/[^0-9.-]/g,''));
+        } else if (hm.score && row[hm.score]) {
+          const s = String(row[hm.score]);
+          if (s.includes('/')) {
+            const [a,b] = s.split('/'); const n=parseFloat(a), d=parseFloat(b);
+            if (!isNaN(n) && !isNaN(d) && d > 0) rawScore = (n/d)*100;
+          } else {
+            rawScore = parseGradeToNumber(s, activeFormat);
+            if (hm.maxScore && row[hm.maxScore] && !isNaN(rawScore) && activeFormat === 'auto') {
+              const mx = parseFloat(row[hm.maxScore]);
+              if (!isNaN(mx) && mx > 0) rawScore = (rawScore/mx)*100;
             }
+          }
         }
-
         if (!nameVal || isNaN(rawScore)) continue;
 
-        const rawSubject = headerMap.subject && row[headerMap.subject] ? row[headerMap.subject] : 'General Classroom';
-        let rawDate = headerMap.date && row[headerMap.date] ? row[headerMap.date] : `Assessment ${fallbackCounter++}`;
-        if (!isNaN(rawDate)) rawDate = `Semester ${rawDate}`;
+        const rawSubject = hm.subject && row[hm.subject] ? row[hm.subject] : 'General Classroom';
+        let rawDate = hm.date && row[hm.date] ? row[hm.date] : 'Assessment '+(fallbackCounter++);
+        if (!isNaN(Number(rawDate))) rawDate = 'Semester '+rawDate;
+        const rawTopic = hm.topic && row[hm.topic] ? row[hm.topic] : '';
+        const assessmentName = rawTopic ? rawTopic : (rawDate.includes('Semester')||rawDate.includes('Test') ? rawDate : 'Test: '+rawDate);
+        const subjectId = rawSubject.toLowerCase().replace(/\s+/g,'-');
+        const studentKey = subjectId+'-'+String(nameVal).toLowerCase().replace(/\s+/g,'-')+'-'+String(idVal).toLowerCase().replace(/\s+/g,'-');
+        const assessmentId = subjectId+'-'+assessmentName.toLowerCase().replace(/\s+/g,'-');
 
-        const rawTopic = headerMap.topic && row[headerMap.topic] ? row[headerMap.topic] : '';
-        const assessmentName = rawTopic ? rawTopic : (rawDate.includes('Semester') || rawDate.includes('Test') ? rawDate : `Test: ${rawDate}`);
-
-        const subjectId = rawSubject.toLowerCase().replace(/\s+/g, '-');
-        const studentKey = `${subjectId}-${String(nameVal).toLowerCase().replace(/\s+/g, '-')}-${String(idVal).toLowerCase().replace(/\s+/g, '-')}`;
-        const assessmentId = `${subjectId}-${assessmentName.toLowerCase().replace(/\s+/g, '-')}`;
-
-        if (!newClassesMap[subjectId]) newClassesMap[subjectId] = { id: subjectId, name: rawSubject };
-        if (!newStudentsMap[studentKey]) newStudentsMap[studentKey] = { id: studentKey, classId: subjectId, name: nameVal, externalId: idVal };
-        if (!newAssessmentsMap[assessmentId]) newAssessmentsMap[assessmentId] = { id: assessmentId, classId: subjectId, name: assessmentName, date: rawDate, topic: rawTopic };
-        
-        newScores.push({ studentId: studentKey, assessmentId, score: rawScore });
+        if (!newClassesMap[subjectId])    newClassesMap[subjectId]    = { id:subjectId, name:rawSubject };
+        if (!newStudentsMap[studentKey])  newStudentsMap[studentKey]  = { id:studentKey, classId:subjectId, name:nameVal, externalId:idVal };
+        if (!newAssessmentsMap[assessmentId]) newAssessmentsMap[assessmentId] = { id:assessmentId, classId:subjectId, name:assessmentName, date:rawDate, topic:rawTopic };
+        newScores.push({ studentId:studentKey, assessmentId, score:rawScore });
       }
 
       if (Object.keys(newClassesMap).length > 0) {
-        const finalClasses = Object.values(newClassesMap);
-        const finalStudents = Object.values(newStudentsMap);
-        const finalAssessments = Object.values(newAssessmentsMap).sort((a, b) => a.date.localeCompare(b.date));
-        
-        setClasses(finalClasses);
-        setStudents(finalStudents);
-        setAssessments(finalAssessments);
-        setScores(newScores);
-        
-        // --- SAVE NEW DATA TO THIS USER'S ACCOUNT ---
+        const finalClasses     = Object.values(newClassesMap);
+        const finalStudents    = Object.values(newStudentsMap);
+        const finalAssessments = Object.values(newAssessmentsMap).sort((a,b) => a.date.localeCompare(b.date));
+        setClasses(finalClasses); setStudents(finalStudents); setAssessments(finalAssessments); setScores(newScores);
         const activeUser = overrideUser || user;
-        if (activeUser) {
-           localStorage.setItem(`gradelens_data_${activeUser.name}`, JSON.stringify({
-              classes: finalClasses,
-              students: finalStudents,
-              assessments: finalAssessments,
-              scores: newScores
-           }));
-        }
-
+        if (activeUser) localStorage.setItem('gradelens_data_'+activeUser.name, JSON.stringify({ classes:finalClasses, students:finalStudents, assessments:finalAssessments, scores:newScores }));
         navigateTo('home');
       } else {
         if (!silent) alert("No valid rows of data were found. Please ensure grades are recognizable.");
       }
     } catch (err) {
       console.error("Data Parse Error", err);
-      if (!silent) alert("An error occurred while parsing the file. Please ensure it is a valid CSV/Excel file.");
+      if (!silent) alert("An error occurred while parsing the file.");
     }
   };
 
