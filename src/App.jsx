@@ -213,7 +213,60 @@ export default function App() {
           else if (!headerMap.date && aliases.date.some(kw => n.includes(kw))) headerMap.date = h;
       });
 
+      // WIDE FORMAT DETECTION: If no score/percentage column found, check if multiple
+      // columns contain numeric/grade data (e.g. one column per subject like Maths, English...).
+      // If so, pivot the data from wide to long format automatically.
       if (!headerMap.score && !headerMap.percentage) {
+        const knownMetaCols = [headerMap.studentId, headerMap.studentName, headerMap.firstName, headerMap.lastName, headerMap.subject, headerMap.date].filter(Boolean);
+        const candidateSubjectCols = rawHeaders.filter(h => !knownMetaCols.includes(h));
+
+        // Check if most candidate columns look like grade columns (numeric or grade letters)
+        const looksLikeGradeCol = (h) => {
+          const sampleVals = dataLines.slice(0, 10).map(line => {
+            const vals = line.split(',');
+            const idx = rawHeaders.indexOf(h);
+            return idx >= 0 ? (vals[idx] || '').trim() : '';
+          }).filter(v => v !== '');
+          // Accept if most values are short (grades are short: "A", "7", "B+", "2:1" etc)
+          const shortEnough = sampleVals.filter(v => v.length <= 4).length;
+          return sampleVals.length > 0 && shortEnough / sampleVals.length >= 0.7;
+        };
+
+        const subjectCols = candidateSubjectCols.filter(looksLikeGradeCol);
+
+        if (subjectCols.length >= 2) {
+          // Pivot: turn each subject column into its own row
+          const pivotedLines = [];
+          for (let i = 0; i < dataLines.length; i++) {
+            if (!dataLines[i].trim()) continue;
+            let vals = [];
+            let inQ = false, cur = "";
+            for (let ch of dataLines[i]) {
+              if (ch === '"') inQ = !inQ;
+              else if (ch === ',' && !inQ) { vals.push(cur.trim()); cur = ""; }
+              else cur += ch;
+            }
+            vals.push(cur.trim());
+            const row = {};
+            rawHeaders.forEach((h, idx) => { row[h] = vals[idx] !== undefined ? vals[idx] : ''; });
+
+            for (const subCol of subjectCols) {
+              const gradeVal = row[subCol];
+              if (!gradeVal) continue;
+              // Build a synthetic CSV row: name, id, subject, score
+              const nameField = headerMap.studentName ? row[headerMap.studentName] : (headerMap.firstName ? `${row[headerMap.firstName] || ''} ${row[headerMap.lastName] || ''}`.trim() : '');
+              const idField = headerMap.studentId ? row[headerMap.studentId] : 'N/A';
+              // Escape commas in fields
+              const esc = (v) => v.includes(',') ? `"${v}"` : v;
+              pivotedLines.push(`${esc(nameField)},${esc(idField)},${esc(subCol)},Assessment 1,${esc(gradeVal)}`);
+            }
+          }
+          if (pivotedLines.length > 0) {
+            const pivotedCSV = "Student Name,Student ID,Subject,Date,Score\n" + pivotedLines.join('\n');
+            return processCSV(pivotedCSV, activeFormat, silent, overrideUser);
+          }
+        }
+
         if (!silent) alert("Grade Lens AI could not automatically locate a 'Score' or 'Percentage' column. Please check your file headers."); 
         return;
       }
