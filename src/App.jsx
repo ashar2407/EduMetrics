@@ -115,6 +115,7 @@ export default function App() {
   const [scores, setScores] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [showPaywall, setShowPaywall] = useState(null); // null | 'pdf' | 'ai' | 'classes'
   const [showPricingPage, setShowPricingPage] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
