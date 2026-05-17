@@ -1793,7 +1793,6 @@ export default function App() {
 
   const TeacherHome = () => {
     const [searchQuery, setSearchQuery] = useState('');
-    const [showImport, setShowImport] = useState(false);
     const [showAtRisk, setShowAtRisk] = useState(false);     // collapsed by default
     const [showSubjects, setShowSubjects] = useState(false); // collapsed by default
     const filteredClasses = classes.filter(cls => cls.name.toLowerCase().includes(searchQuery.toLowerCase()));
