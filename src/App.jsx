@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
 import { Users, TrendingUp, TrendingDown, AlertTriangle, BookOpen, ChevronRight, ArrowLeft, Activity, Target, UploadCloud, FileSpreadsheet, Download, Printer, Lightbulb, ShieldAlert, Search, LogOut, Lock, BarChart3, Brain, FileText, CheckCircle2, Wand2, Sparkles } from 'lucide-react';
+import ImportFlow from './ImportFlow';
 
 // ─── PREMIUM CONFIG ────────────────────────────────────────────────────────────
 // Replace with your real Stripe Payment Link URL from dashboard.stripe.com
@@ -114,6 +115,7 @@ export default function App() {
   const [scores, setScores] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [showPaywall, setShowPaywall] = useState(null); // null | 'pdf' | 'ai' | 'classes'
   const [showPricingPage, setShowPricingPage] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -1900,12 +1902,12 @@ export default function App() {
                 </div>
                 <div className="flex flex-col">
                   <label className="text-xs font-bold text-gray-400 mb-1.5 uppercase tracking-wider">Upload Any File</label>
-                  <div className="relative">
-                    <input type="file" accept=".csv, .xlsx, .xls" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" id="file-upload" />
-                    <label htmlFor="file-upload" className="flex items-center justify-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition-colors cursor-pointer text-sm shadow-sm">
-                      <UploadCloud size={18} /> Select Excel / CSV
-                    </label>
-                  </div>
+                  <button
+                    onClick={() => setShowImport(true)}
+                    className="flex items-center justify-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition-colors text-sm shadow-sm"
+                  >
+                    <UploadCloud size={18} /> Select Excel / CSV
+                  </button>
                 </div>
                 <div className="flex flex-col ml-auto">
                   <button onClick={downloadCSV} disabled={scores.length === 0} className="flex items-center justify-center gap-2 px-5 py-2.5 bg-gray-900 hover:bg-black disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-xl font-bold transition-colors text-sm shadow-sm">
@@ -3146,6 +3148,40 @@ export default function App() {
               {view.type === 'class' && (classes.length > 0 ? <ClassDashboard /> : <TeacherHome />)}
               {view.type === 'student' && (classes.length > 0 ? <StudentDashboard /> : <TeacherHome />)}
             </>
+          )}
+
+          {showImport && (
+            <ImportFlow
+              user={user}
+              onClose={() => setShowImport(false)}
+              onImportComplete={async () => {
+                if (!user?.id) return;
+                try {
+                  const res  = await fetch(`https://edumetrics-api-kro4.onrender.com/api/dashboard/${user.id}`);
+                  const data = await res.json();
+                  if (!data.classes) return;
+                  const c = [], s = [], a = [], sc = [];
+                  for (const cls of data.classes) {
+                    c.push({ id: cls.id, name: cls.name });
+                    for (const stu of cls.students || []) {
+                      s.push({ id: stu.id, classId: cls.id, name: stu.name, externalId: stu.externalId });
+                      for (const score of stu.scores || []) {
+                        sc.push({ studentId: stu.id, assessmentId: score.assessmentId, score: score.score });
+                      }
+                    }
+                    for (const ass of cls.assessments || []) {
+                      a.push({ id: ass.id, classId: cls.id, name: ass.name, date: ass.date || '', topic: ass.topic || '' });
+                    }
+                  }
+                  setClasses(c); setStudents(s); setAssessments(a); setScores(sc);
+                  localStorage.setItem(`gradelens_data_${user.name}`, JSON.stringify({
+                    classes: c, students: s, assessments: a, scores: sc,
+                  }));
+                } catch (err) {
+                  console.error('Failed to reload data after import:', err);
+                }
+              }}
+            />
           )}
         </main>
       </div>
