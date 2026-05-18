@@ -94,7 +94,7 @@ export default function ImportFlow({ user, onClose, onImportComplete }) {
 
     const form = new FormData();
     form.append('file', file);
-    form.append('userId', user.id);
+    form.append('userId', String(user.id));
 
     try {
       const res  = await fetch(`${API_BASE}/api/import/upload`, { method: 'POST', body: form });
