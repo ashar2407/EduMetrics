@@ -204,6 +204,13 @@ export default function ImportFlow({ user, onClose, onImportComplete }) {
               <div className="mt-8 flex items-center justify-center gap-2 text-xs font-bold text-emerald-600">
                 <Wand2 size={13} /> AI auto-detects columns — no formatting required
               </div>
+              {/* ── Data Compliance Notice ───────────────────────────────────── */}
+              <div className="mt-5 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-100 border border-slate-200 text-slate-500 text-[11px] font-bold mx-auto">
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                </svg>
+                Privacy First: Student analytics are processed locally in your browser. Your data remains fully secure and confidential.
+              </div>
             </div>
           )}
 

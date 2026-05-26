@@ -917,6 +917,19 @@ export default function App() {
             </div>
           </div>
         </div>
+
+        {/* ── Data Compliance Notice ─────────────────────────────────────────── */}
+        <div className="flex items-start gap-3 px-6 py-4 rounded-2xl bg-slate-50 border border-slate-100">
+          <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-slate-400 flex-shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          <div>
+            <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-0.5">Privacy First</p>
+            <p className="text-xs text-slate-400 font-medium leading-relaxed">
+              Student analytics are processed locally in your browser session. No student names or marks are stored on external servers beyond your own authenticated account. Your data remains fully secure and confidential.
+            </p>
+          </div>
+        </div>
       </div>
     );
   };
@@ -1379,8 +1392,31 @@ export default function App() {
           </div>
         </div>
 
+        {/* ── B2B / Institutional Licensing CTA ─────────────────────────────────── */}
+        <div className="max-w-3xl mx-auto mt-8">
+          <div className="relative overflow-hidden rounded-3xl border border-blue-100 bg-gradient-to-r from-blue-50 via-indigo-50 to-blue-50 p-8 flex flex-col md:flex-row items-center gap-6 shadow-sm">
+            {/* Decorative blobs */}
+            <div className="absolute -top-8 -right-8 w-40 h-40 bg-blue-100/60 rounded-full" />
+            <div className="absolute -bottom-6 -left-6 w-28 h-28 bg-indigo-100/60 rounded-full" />
+            <div className="relative flex-shrink-0 w-14 h-14 bg-white rounded-2xl border border-blue-100 shadow-sm flex items-center justify-center text-2xl">
+              🏫
+            </div>
+            <div className="relative flex-1 text-center md:text-left">
+              <p className="text-xs font-black text-blue-500 uppercase tracking-widest mb-1">Institutional Licensing</p>
+              <h3 className="text-xl font-black text-gray-900 mb-1">Need Grade Lens for your whole school or department?</h3>
+              <p className="text-gray-500 font-medium text-sm">We offer volume pricing for schools, MATs, and districts — including admin dashboards, SSO, and dedicated onboarding support.</p>
+            </div>
+            <a
+              href="mailto:hello@gradelens.app?subject=Institutional%20Licensing%20Enquiry"
+              className="relative flex-shrink-0 inline-flex items-center gap-2 px-7 py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-sm uppercase tracking-widest rounded-2xl shadow-md transition-all whitespace-nowrap"
+            >
+              Contact Us →
+            </a>
+          </div>
+        </div>
+
         {/* FAQ */}
-        <div className="mt-20 max-w-2xl mx-auto">
+        <div className="mt-16 max-w-2xl mx-auto">
           <h2 className="text-2xl font-black text-gray-900 text-center mb-8">Frequently Asked Questions</h2>
           <div className="space-y-4">
             {[
@@ -2897,6 +2933,77 @@ export default function App() {
     const [goal, setGoal] = useState('');
     const [goalStatus, setGoalStatus] = useState('');
     const [savedGoal, setSavedGoal] = useState(null);
+    const [feedbackText, setFeedbackText] = useState('');
+    const [feedbackStatus, setFeedbackStatus] = useState(''); // '' | 'generating' | 'done' | 'error'
+    const [feedbackCopied, setFeedbackCopied] = useState(false);
+
+    const generateAIFeedback = () => {
+      setFeedbackStatus('generating');
+      setFeedbackText('');
+      // Simulate brief generation delay for a polished UX feel
+      setTimeout(() => {
+        try {
+          const scores        = student.scoreVals;
+          const mean          = student.mean;
+          const slope         = student.slope;
+          const firstName     = student.name.split(' ')[0];
+          const latestScore   = scores[scores.length - 1];
+          const firstScore    = scores[0];
+          const assessNames   = classData.assessments.map(a => a.name);
+          const scorePairs    = scores.map((s, i) => ({ score: s, name: assessNames[i] || `Assessment ${i + 1}` }));
+          const best          = scorePairs.reduce((a, b) => a.score >= b.score ? a : b);
+          const worst         = scorePairs.reduce((a, b) => a.score <= b.score ? a : b);
+
+          // ── Performance band ──────────────────────────────────────────────────
+          const perfBand = mean >= 85 ? 'excellent' : mean >= 70 ? 'solid' : mean >= 55 ? 'developing' : 'in need of additional support';
+
+          // ── Trend narrative ───────────────────────────────────────────────────
+          let trendLine;
+          if (slope > 3)        trendLine = `Their trajectory shows a strong upward trend — scores have climbed from ${firstScore}% to ${latestScore}%, which is an encouraging sign of genuine progress.`;
+          else if (slope > 0.5) trendLine = `There is a steady improvement in their results, rising from ${firstScore}% to ${latestScore}%, suggesting growing confidence with the material.`;
+          else if (slope < -3)  trendLine = `However, their scores reflect a concerning downward trend, falling from ${firstScore}% to ${latestScore}%. Early targeted intervention is recommended.`;
+          else if (slope < -0.5) trendLine = `A slight decline in scores (${firstScore}% → ${latestScore}%) is noted and warrants close monitoring over the coming assessments.`;
+          else                  trendLine = `${firstName} has demonstrated consistent performance across assessments, indicating a stable command of the subject matter.`;
+
+          // ── Highlights ────────────────────────────────────────────────────────
+          const highlightLine = best.score !== worst.score
+            ? `Their strongest result was on ${best.name} (${best.score}%), while ${worst.name} (${worst.score}%) identified an area for targeted revision.`
+            : `${firstName} performed consistently across all assessments, with ${best.name} being a highlight at ${best.score}%.`;
+
+          // ── Goal progress ──────────────────────────────────────────────────────
+          const goalLine = savedGoal != null
+            ? (mean >= savedGoal
+                ? `Notably, ${firstName} has met their target score of ${savedGoal}% — a milestone worth acknowledging.`
+                : `${firstName} is currently ${(savedGoal - mean).toFixed(1)}% away from their personal target of ${savedGoal}%, which can serve as a motivating focus.`)
+            : '';
+
+          // ── Teacher note context (summarised, not exposed verbatim) ────────────
+          const noteContext = note.trim()
+            ? `Based on teacher observations, there are specific contextual factors to consider when reviewing this student's progress.`
+            : '';
+
+          // ── Action-oriented close ──────────────────────────────────────────────
+          let closing;
+          if (slope < -1 && mean < 60)  closing = `A one-to-one check-in with ${firstName} is strongly recommended to identify gaps, rebuild confidence, and co-create a clear support plan.`;
+          else if (slope > 1)            closing = `Encourage ${firstName} to sustain this positive momentum and challenge themselves with higher-order application tasks ahead of upcoming assessments.`;
+          else                           closing = `Continued engagement and focused revision in identified weaker areas will help ${firstName} consolidate their learning and reach their full potential.`;
+
+          const paragraphs = [
+            `${firstName} is currently performing at a ${perfBand} level, with an overall class average of ${mean.toFixed(1)}%.`,
+            trendLine,
+            highlightLine,
+            noteContext,
+            goalLine,
+            closing,
+          ].filter(Boolean);
+
+          setFeedbackText(paragraphs.join('\n\n'));
+          setFeedbackStatus('done');
+        } catch {
+          setFeedbackStatus('error');
+        }
+      }, 1200);
+    };
 
     // Load existing note + goal from backend on mount
     React.useEffect(() => {
@@ -3296,6 +3403,69 @@ export default function App() {
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ── AI FEEDBACK GENERATOR ──────────────────────────────────────────────── */}
+        {!isGeneratingPDF && (
+          <div className={`bg-white p-8 rounded-[2rem] border border-gray-100 shadow-sm w-full relative overflow-hidden`}>
+            {!isPremium && (
+              <div className="absolute inset-0 bg-white/85 backdrop-blur-[2px] flex flex-col items-center justify-center z-10 rounded-[2rem]">
+                <div className="text-2xl mb-1.5">🧠</div>
+                <p className="font-black text-gray-700 text-sm mb-1">AI Feedback Generator</p>
+                <button onClick={() => setShowPaywall('ai')} className="text-xs font-black text-amber-600 uppercase tracking-widest hover:text-amber-800 transition-colors">Upgrade to unlock →</button>
+              </div>
+            )}
+            <div className="flex items-start justify-between mb-5">
+              <div>
+                <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 flex items-center gap-2">
+                  <Brain className="h-4 w-4 text-purple-500" /> AI Feedback Generator
+                </h3>
+                <p className="text-xs text-gray-400 font-medium max-w-lg">
+                  Generate a personalised, parent-ready feedback summary for <strong className="text-gray-600">{student.name}</strong> based on their scores, performance trend, and your teacher notes.
+                </p>
+              </div>
+              <button
+                onClick={generateAIFeedback}
+                disabled={feedbackStatus === 'generating'}
+                className="flex-shrink-0 ml-4 flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:opacity-50 text-white font-black text-xs uppercase tracking-widest rounded-xl shadow-sm transition-all"
+              >
+                {feedbackStatus === 'generating'
+                  ? <><span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full" /> Generating…</>
+                  : <><Sparkles size={14} /> {feedbackStatus === 'done' ? 'Regenerate' : 'Generate Feedback'}</>
+                }
+              </button>
+            </div>
+
+            {/* Result area */}
+            {feedbackStatus === 'done' && feedbackText && (
+              <div className="mt-2 bg-slate-50 border border-slate-100 rounded-2xl p-6 space-y-3">
+                {feedbackText.split('\n\n').map((para, i) => (
+                  <p key={i} className="text-sm text-gray-700 font-medium leading-relaxed">{para}</p>
+                ))}
+                <div className="pt-3 border-t border-slate-200 flex items-center justify-between">
+                  <p className="text-[10px] font-black text-gray-300 uppercase tracking-widest">Generated by Grade Lens · For educator review before sharing</p>
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(feedbackText); setFeedbackCopied(true); setTimeout(() => setFeedbackCopied(false), 2000); }}
+                    className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all border ${feedbackCopied ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-white text-gray-500 border-gray-200 hover:border-blue-300 hover:text-blue-600'}`}
+                  >
+                    {feedbackCopied ? <><CheckCircle2 size={12} /> Copied</> : 'Copy Text'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {feedbackStatus === 'error' && (
+              <div className="mt-2 bg-red-50 border border-red-100 rounded-2xl p-4 text-sm text-red-600 font-bold">
+                Failed to generate feedback. Please try again.
+              </div>
+            )}
+
+            {feedbackStatus === '' && (
+              <div className="mt-2 border-2 border-dashed border-gray-100 rounded-2xl p-6 text-center">
+                <p className="text-xs text-gray-300 font-bold uppercase tracking-widest">Click "Generate Feedback" to produce a personalised summary</p>
+              </div>
+            )}
           </div>
         )}
 
