@@ -1793,9 +1793,230 @@ export default function App() {
 
   const TeacherHome = () => {
     const [searchQuery, setSearchQuery] = useState('');
-    const [showAtRisk, setShowAtRisk] = useState(false);     // collapsed by default
-    const [showSubjects, setShowSubjects] = useState(false); // collapsed by default
+    const [showAtRisk, setShowAtRisk] = useState(false);
+    const [showSubjects, setShowSubjects] = useState(false);
+    const [manageClass, setManageClass] = useState(null); // { id, name } of class being managed
+    const [manageView, setManageView] = useState('menu'); // 'menu' | 'rename' | 'students' | 'confirmDelete'
+    const [renameValue, setRenameValue] = useState('');
+    const [renameStatus, setRenameStatus] = useState(''); // '' | 'saving' | 'error' | 'collision'
+    const [studentList, setStudentList] = useState([]);
+    const [studentListLoading, setStudentListLoading] = useState(false);
+    const [deletingStudentId, setDeletingStudentId] = useState(null);
+    const [classActionStatus, setClassActionStatus] = useState(''); // '' | 'deleting' | 'error'
     const filteredClasses = classes.filter(cls => cls.name.toLowerCase().includes(searchQuery.toLowerCase()));
+
+    const API = 'https://edumetrics-api-kro4.onrender.com';
+
+    const openManage = (e, cls) => {
+      e.stopPropagation();
+      setManageClass(cls);
+      setManageView('menu');
+      setRenameValue(cls.name);
+      setRenameStatus('');
+      setClassActionStatus('');
+    };
+
+    const closeManage = () => {
+      setManageClass(null);
+      setManageView('menu');
+      setStudentList([]);
+    };
+
+    const handleRename = async () => {
+      if (!renameValue.trim() || renameValue.trim() === manageClass.name) return;
+      setRenameStatus('saving');
+      try {
+        const res = await fetch(`${API}/api/classes/${manageClass.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'x-user-id': user.id },
+          body: JSON.stringify({ name: renameValue.trim() }),
+        });
+        if (res.status === 409) { setRenameStatus('collision'); return; }
+        if (!res.ok) { setRenameStatus('error'); return; }
+        // Update local state immediately
+        setClasses(prev => prev.map(c => c.id === manageClass.id ? { ...c, name: renameValue.trim() } : c));
+        setManageClass(prev => ({ ...prev, name: renameValue.trim() }));
+        setRenameStatus('saved');
+        setTimeout(() => setManageView('menu'), 800);
+      } catch { setRenameStatus('error'); }
+    };
+
+    const handleDeleteClass = async () => {
+      setClassActionStatus('deleting');
+      try {
+        const res = await fetch(`${API}/api/classes/${manageClass.id}`, {
+          method: 'DELETE',
+          headers: { 'x-user-id': user.id },
+        });
+        if (!res.ok) { setClassActionStatus('error'); return; }
+        // Remove from all local state
+        const id = manageClass.id;
+        setClasses(prev => prev.filter(c => c.id !== id));
+        setStudents(prev => prev.filter(s => s.classId !== id));
+        setAssessments(prev => prev.filter(a => a.classId !== id));
+        setScores(prev => prev.filter(sc => {
+          const stuIds = students.filter(s => s.classId === id).map(s => s.id);
+          return !stuIds.includes(sc.studentId);
+        }));
+        closeManage();
+      } catch { setClassActionStatus('error'); }
+    };
+
+    const loadStudents = async () => {
+      setStudentListLoading(true);
+      try {
+        const res = await fetch(`${API}/api/classes/${manageClass.id}/students`, {
+          headers: { 'x-user-id': user.id },
+        });
+        const data = await res.json();
+        setStudentList(data.students || []);
+      } catch { setStudentList([]); }
+      setStudentListLoading(false);
+    };
+
+    const handleDeleteStudent = async (studentId) => {
+      setDeletingStudentId(studentId);
+      try {
+        const res = await fetch(`${API}/api/classes/${manageClass.id}/students/${studentId}`, {
+          method: 'DELETE',
+          headers: { 'x-user-id': user.id },
+        });
+        if (!res.ok) { setDeletingStudentId(null); return; }
+        setStudentList(prev => prev.filter(s => s.id !== studentId));
+        setStudents(prev => prev.filter(s => s.id !== studentId));
+        setScores(prev => prev.filter(sc => sc.studentId !== studentId));
+      } catch {}
+      setDeletingStudentId(null);
+    };
+
+    // Manage Modal
+    const ManageModal = () => {
+      if (!manageClass) return null;
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" onClick={closeManage}>
+          <div className="bg-white rounded-3xl shadow-2xl border border-gray-100 w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
+              <div>
+                {manageView !== 'menu' && (
+                  <button onClick={() => { setManageView('menu'); setRenameStatus(''); }} className="text-[10px] font-black text-gray-400 uppercase tracking-widest hover:text-gray-700 transition-colors flex items-center gap-1 mb-1">
+                    ← Back
+                  </button>
+                )}
+                <h3 className="font-black text-gray-900 text-base leading-tight truncate max-w-xs">{manageClass.name}</h3>
+              </div>
+              <button onClick={closeManage} className="text-gray-300 hover:text-gray-600 text-xl font-bold leading-none transition-colors">✕</button>
+            </div>
+
+            {/* Menu view */}
+            {manageView === 'menu' && (
+              <div className="p-4 space-y-2">
+                <button onClick={() => setManageView('rename')}
+                  className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl hover:bg-gray-50 transition-colors group text-left">
+                  <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors text-base">✏️</div>
+                  <div>
+                    <p className="font-black text-gray-800 text-sm">Rename Class</p>
+                    <p className="text-gray-400 text-xs font-medium mt-0.5">Change the display name for this class</p>
+                  </div>
+                </button>
+                <button onClick={() => { setManageView('students'); loadStudents(); }}
+                  className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl hover:bg-gray-50 transition-colors group text-left">
+                  <div className="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center text-purple-600 group-hover:bg-purple-600 group-hover:text-white transition-colors text-base">👥</div>
+                  <div>
+                    <p className="font-black text-gray-800 text-sm">Manage Students</p>
+                    <p className="text-gray-400 text-xs font-medium mt-0.5">Remove individual students from this class</p>
+                  </div>
+                </button>
+                <div className="border-t border-gray-100 pt-2 mt-2">
+                  <button onClick={() => setManageView('confirmDelete')}
+                    className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl hover:bg-red-50 transition-colors group text-left">
+                    <div className="w-10 h-10 bg-red-50 rounded-xl flex items-center justify-center text-red-500 group-hover:bg-red-500 group-hover:text-white transition-colors text-base">🗑️</div>
+                    <div>
+                      <p className="font-black text-red-500 text-sm">Delete Class</p>
+                      <p className="text-gray-400 text-xs font-medium mt-0.5">Permanently removes all students and scores</p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Rename view */}
+            {manageView === 'rename' && (
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">New Class Name</label>
+                  <input
+                    autoFocus
+                    value={renameValue}
+                    onChange={e => { setRenameValue(e.target.value); setRenameStatus(''); }}
+                    onKeyDown={e => e.key === 'Enter' && handleRename()}
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-sm bg-gray-50"
+                  />
+                  {renameStatus === 'collision' && <p className="text-red-500 text-xs font-bold mt-2">You already have a class with that name.</p>}
+                  {renameStatus === 'error' && <p className="text-red-500 text-xs font-bold mt-2">Something went wrong — try again.</p>}
+                  {renameStatus === 'saved' && <p className="text-emerald-500 text-xs font-bold mt-2">✓ Renamed successfully!</p>}
+                </div>
+                <button onClick={handleRename} disabled={renameStatus === 'saving' || !renameValue.trim()}
+                  className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-black py-3 rounded-xl text-xs uppercase tracking-widest transition-all">
+                  {renameStatus === 'saving' ? 'Saving...' : 'Save New Name'}
+                </button>
+              </div>
+            )}
+
+            {/* Students view */}
+            {manageView === 'students' && (
+              <div className="max-h-96 overflow-y-auto">
+                {studentListLoading ? (
+                  <div className="py-12 text-center text-gray-400 font-bold text-sm animate-pulse">Loading students...</div>
+                ) : studentList.length === 0 ? (
+                  <div className="py-12 text-center text-gray-400 font-bold text-sm">No students in this class.</div>
+                ) : (
+                  <div className="divide-y divide-gray-50">
+                    {studentList.map(s => (
+                      <div key={s.id} className="flex items-center justify-between px-6 py-3 hover:bg-gray-50/50 transition-colors">
+                        <div>
+                          <p className="font-black text-gray-800 text-sm">{s.name}</p>
+                          <p className="text-[11px] text-gray-400 font-medium">
+                            {s.scoreCount} score{s.scoreCount !== 1 ? 's' : ''}
+                            {s.avgScore !== null ? ` · avg ${s.avgScore}%` : ''}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleDeleteStudent(s.id)}
+                          disabled={deletingStudentId === s.id}
+                          className="text-[10px] font-black text-red-500 bg-red-50 border border-red-100 px-3 py-1.5 rounded-lg uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all disabled:opacity-40"
+                        >
+                          {deletingStudentId === s.id ? '...' : 'Remove'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Confirm delete view */}
+            {manageView === 'confirmDelete' && (
+              <div className="p-6 text-center">
+                <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center mx-auto mb-4 text-3xl">🗑️</div>
+                <h4 className="font-black text-gray-900 text-lg mb-2">Delete "{manageClass.name}"?</h4>
+                <p className="text-gray-500 text-sm font-medium mb-6 leading-relaxed">This will permanently delete the class and all its students and scores. This cannot be undone.</p>
+                {classActionStatus === 'error' && <p className="text-red-500 text-xs font-bold mb-3">Something went wrong — try again.</p>}
+                <div className="flex gap-3">
+                  <button onClick={() => setManageView('menu')} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-black py-3 rounded-xl text-xs uppercase tracking-widest transition-all">
+                    Cancel
+                  </button>
+                  <button onClick={handleDeleteClass} disabled={classActionStatus === 'deleting'}
+                    className="flex-1 bg-red-500 hover:bg-red-600 disabled:bg-red-300 text-white font-black py-3 rounded-xl text-xs uppercase tracking-widest transition-all">
+                    {classActionStatus === 'deleting' ? 'Deleting...' : 'Yes, Delete'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
 
     // Compute summary stats for the header row
     const totalStudents = students.length;
@@ -1822,6 +2043,7 @@ export default function App() {
 
     return (
       <div className="space-y-6">
+        <ManageModal />
         <div className="flex justify-between items-end">
           <div>
             <h1 className="text-3xl font-bold text-gray-800">Dashboard Overview</h1>
@@ -2098,7 +2320,17 @@ export default function App() {
                         )}
                         <div className="flex justify-between items-start mb-6">
                           <h2 className="text-2xl font-black text-gray-800 leading-tight">{cls.name}</h2>
-                          <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl group-hover:bg-blue-600 group-hover:text-white transition-colors"><BarChart3 size={20}/></div>
+                          <div className="flex items-center gap-2">
+                            {!isLocked && (
+                              <button
+                                onClick={e => openManage(e, cls)}
+                                className="p-2.5 bg-gray-50 text-gray-400 rounded-xl hover:bg-gray-100 hover:text-gray-700 transition-colors text-xs font-black"
+                                title="Manage class">
+                                ⋯
+                              </button>
+                            )}
+                            <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl group-hover:bg-blue-600 group-hover:text-white transition-colors"><BarChart3 size={20}/></div>
+                          </div>
                         </div>
                         <div className="flex items-center justify-between mb-6">
                           <span className="text-gray-500 font-medium flex items-center"><Users size={16} className="mr-2"/>{cnt} Students Enrolled</span>
@@ -2152,7 +2384,17 @@ export default function App() {
                               onClick={() => navigateTo('class', cls.id)}>
                               <div className="flex items-center justify-between mb-2">
                                 <span className="font-black text-gray-800 text-sm">{label}</span>
-                                <ChevronRight size={13} className="text-gray-300 group-hover/tile:text-blue-400 transition-colors"/>
+                                <div className="flex items-center gap-1.5">
+                                  {!isLocked && (
+                                    <button
+                                      onClick={e => openManage(e, cls)}
+                                      className="text-gray-300 hover:text-gray-600 font-black text-base leading-none transition-colors px-1"
+                                      title="Manage">
+                                      ⋯
+                                    </button>
+                                  )}
+                                  <ChevronRight size={13} className="text-gray-300 group-hover/tile:text-blue-400 transition-colors"/>
+                                </div>
                               </div>
                               <div className="flex items-center gap-2.5">
                                 <span className="text-xs text-gray-400 font-medium flex items-center gap-1"><Users size={11}/>{setStu}</span>
