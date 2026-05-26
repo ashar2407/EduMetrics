@@ -1732,6 +1732,13 @@ export default function App() {
 
         if (response.ok) {
           // Success! Credentials match.
+          // Clear any active demo mode before loading the real account
+          setIsDemoMode(false);
+          setTourStep(-1);
+          setClasses([]);
+          setStudents([]);
+          setAssessments([]);
+          setScores([]);
           setUser({ name: data.user.username, role: 'Teacher', id: data.user.id, isPremium: data.user.isPremium ?? false, email: data.user.email || null });
           // Trigger onboarding if this user hasn't seen it before
           if (!localStorage.getItem(`gradelens_onboarded_${data.user.username}`)) {
