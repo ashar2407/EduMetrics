@@ -184,6 +184,12 @@ export default function App() {
       } catch (e) {
         console.error("Failed to load saved data");
       }
+    } else {
+      // Clear any leftover demo data so it never bleeds into a real account
+      setClasses([]);
+      setStudents([]);
+      setAssessments([]);
+      setScores([]);
     }
 
     const handleHashChange = () => {
@@ -1644,6 +1650,9 @@ export default function App() {
         if (response.ok) {
           // Success! The database saved them. Log them in.
           setUser({ name: data.user.username, role: 'Teacher', id: data.user.id, isPremium: false });
+          // Clear any demo mode state so it never bleeds into a real session
+          setIsDemoMode(false);
+          setTourStep(-1);
           // New account — always show onboarding
           setTimeout(() => { setIsOnboarding(true); setOnboardingStep(0); }, 800);
         } else {
@@ -1733,6 +1742,9 @@ export default function App() {
         if (response.ok) {
           // Success! Credentials match.
           setUser({ name: data.user.username, role: 'Teacher', id: data.user.id, isPremium: data.user.isPremium ?? false, email: data.user.email || null });
+          // Clear any demo mode state so it never bleeds into a real session
+          setIsDemoMode(false);
+          setTourStep(-1);
           // Trigger onboarding if this user hasn't seen it before
           if (!localStorage.getItem(`gradelens_onboarded_${data.user.username}`)) {
             setTimeout(() => { setIsOnboarding(true); setOnboardingStep(0); }, 800);
