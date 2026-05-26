@@ -1863,13 +1863,12 @@ export default function App() {
         if (!res.ok) { setClassActionStatus('error'); return; }
         // Remove from all local state
         const id = manageClass.id;
+        // Capture removed student IDs before state updates to avoid stale closure
+        const removedStudentIds = new Set(students.filter(s => s.classId === id).map(s => s.id));
         setClasses(prev => prev.filter(c => c.id !== id));
         setStudents(prev => prev.filter(s => s.classId !== id));
         setAssessments(prev => prev.filter(a => a.classId !== id));
-        setScores(prev => prev.filter(sc => {
-          const stuIds = students.filter(s => s.classId === id).map(s => s.id);
-          return !stuIds.includes(sc.studentId);
-        }));
+        setScores(prev => prev.filter(sc => !removedStudentIds.has(sc.studentId)));
         closeManage();
       } catch { setClassActionStatus('error'); }
     };
