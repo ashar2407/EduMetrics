@@ -17,15 +17,16 @@ import {
 const API_BASE = 'https://edumetrics-api-kro4.onrender.com';
 
 const INTERNAL_FIELDS = [
-  { value: 'student_name', label: 'Student Name',  required: true  },
-  { value: 'student_id',   label: 'Student ID',    required: false },
-  { value: 'grade',        label: 'Grade / Score', required: true  },
-  { value: 'subject',      label: 'Subject',       required: false },
-  { value: 'assessment',   label: 'Assessment',    required: false },
-  { value: 'date',         label: 'Date',          required: false },
-  { value: 'teacher',      label: 'Teacher',       required: false },
-  { value: 'class',        label: 'Class / Group', required: false },
-  { value: 'notes',        label: 'Notes',         required: false },
+  { value: 'student_name', label: 'Student Name',      required: true  },
+  { value: 'student_id',   label: 'Student ID',        required: false },
+  { value: 'grade',        label: 'Grade / Score',     required: true  },
+  { value: 'max_score',    label: 'Max Score / Out Of', required: false },
+  { value: 'subject',      label: 'Subject',           required: false },
+  { value: 'assessment',   label: 'Assessment',        required: false },
+  { value: 'date',         label: 'Date',              required: false },
+  { value: 'teacher',      label: 'Teacher',           required: false },
+  { value: 'class',        label: 'Class / Group',     required: false },
+  { value: 'notes',        label: 'Notes',             required: false },
 ];
 
 function ConfidenceBadge({ confidence, source }) {
