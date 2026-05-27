@@ -231,11 +231,26 @@ export default function ImportFlow({ user, onClose, onImportComplete }) {
             <div className="space-y-6">
 
               {session.templateName ? (
-                <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl flex items-center gap-3">
-                  <CheckCircle2 className="text-emerald-600 flex-shrink-0" size={18} />
-                  <p className="text-emerald-800 font-bold text-sm">
-                    Recognised format: <strong>{session.templateName}</strong> — mapping applied automatically.
-                  </p>
+                <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <CheckCircle2 className="text-emerald-600 flex-shrink-0" size={18} />
+                    <p className="text-emerald-800 font-bold text-sm">
+                      Recognised format: <strong>{session.templateName}</strong> — mapping applied automatically.
+                    </p>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (!session.templateId) return;
+                      await fetch(`${API_BASE}/api/import/templates/${session.templateId}`, {
+                        method: 'DELETE',
+                        headers: { 'x-user-id': String(user.id) },
+                      });
+                      reset();
+                    }}
+                    className="text-[10px] font-black text-red-500 bg-red-50 border border-red-100 px-3 py-1.5 rounded-lg uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all whitespace-nowrap flex-shrink-0"
+                  >
+                    Delete Template
+                  </button>
                 </div>
               ) : (
                 <div className="bg-blue-50 border border-blue-100 p-4 rounded-2xl flex items-start gap-3">
