@@ -1845,6 +1845,9 @@ export default function App() {
     const [studentList, setStudentList] = useState([]);
     const [studentListLoading, setStudentListLoading] = useState(false);
     const [deletingStudentId, setDeletingStudentId] = useState(null);
+    const [assessmentList, setAssessmentList] = useState([]);
+    const [assessmentListLoading, setAssessmentListLoading] = useState(false);
+    const [deletingAssessmentId, setDeletingAssessmentId] = useState(null);
     const [classActionStatus, setClassActionStatus] = useState(''); // '' | 'deleting' | 'error'
     const filteredClasses = classes.filter(cls => cls.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
@@ -1863,6 +1866,7 @@ export default function App() {
       setManageClass(null);
       setManageView('menu');
       setStudentList([]);
+      setAssessmentList([]);
     };
 
     const handleRename = async () => {
@@ -1932,6 +1936,33 @@ export default function App() {
       setDeletingStudentId(null);
     };
 
+    const loadAssessments = async () => {
+      setAssessmentListLoading(true);
+      try {
+        const res = await fetch(`${API}/api/classes/${manageClass.id}/assessments`, {
+          headers: { 'x-user-id': user.id },
+        });
+        const data = await res.json();
+        setAssessmentList(data.assessments || []);
+      } catch { setAssessmentList([]); }
+      setAssessmentListLoading(false);
+    };
+
+    const handleDeleteAssessment = async (assessmentId) => {
+      setDeletingAssessmentId(assessmentId);
+      try {
+        const res = await fetch(`${API}/api/classes/${manageClass.id}/assessments/${assessmentId}`, {
+          method: 'DELETE',
+          headers: { 'x-user-id': user.id },
+        });
+        if (!res.ok) { setDeletingAssessmentId(null); return; }
+        setAssessmentList(prev => prev.filter(a => a.id !== assessmentId));
+        setAssessments(prev => prev.filter(a => a.id !== assessmentId));
+        setScores(prev => prev.filter(sc => sc.assessmentId !== assessmentId));
+      } catch {}
+      setDeletingAssessmentId(null);
+    };
+
     // Manage Modal
     const ManageModal = () => {
       if (!manageClass) return null;
@@ -1968,6 +1999,14 @@ export default function App() {
                   <div>
                     <p className="font-black text-gray-800 text-sm">Manage Students</p>
                     <p className="text-gray-400 text-xs font-medium mt-0.5">Remove individual students from this class</p>
+                  </div>
+                </button>
+                <button onClick={() => { setManageView('assessments'); loadAssessments(); }}
+                  className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl hover:bg-gray-50 transition-colors group text-left">
+                  <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center text-amber-600 group-hover:bg-amber-600 group-hover:text-white transition-colors text-base">📋</div>
+                  <div>
+                    <p className="font-black text-gray-800 text-sm">Manage Assessments</p>
+                    <p className="text-gray-400 text-xs font-medium mt-0.5">Delete individual assessments and their scores</p>
                   </div>
                 </button>
                 <div className="border-t border-gray-100 pt-2 mt-2">
@@ -2030,6 +2069,38 @@ export default function App() {
                           className="text-[10px] font-black text-red-500 bg-red-50 border border-red-100 px-3 py-1.5 rounded-lg uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all disabled:opacity-40"
                         >
                           {deletingStudentId === s.id ? '...' : 'Remove'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Assessments view */}
+            {manageView === 'assessments' && (
+              <div className="max-h-96 overflow-y-auto">
+                {assessmentListLoading ? (
+                  <div className="py-12 text-center text-gray-400 font-bold text-sm animate-pulse">Loading assessments...</div>
+                ) : assessmentList.length === 0 ? (
+                  <div className="py-12 text-center text-gray-400 font-bold text-sm">No assessments in this class.</div>
+                ) : (
+                  <div className="divide-y divide-gray-50">
+                    {assessmentList.map(a => (
+                      <div key={a.id} className="flex items-center justify-between px-6 py-3 hover:bg-gray-50/50 transition-colors">
+                        <div>
+                          <p className="font-black text-gray-800 text-sm">{a.name}</p>
+                          <p className="text-[11px] text-gray-400 font-medium">
+                            {a.scoreCount} score{a.scoreCount !== 1 ? 's' : ''}
+                            {a.date ? ` · ${a.date}` : ''}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleDeleteAssessment(a.id)}
+                          disabled={deletingAssessmentId === a.id}
+                          className="text-[10px] font-black text-red-500 bg-red-50 border border-red-100 px-3 py-1.5 rounded-lg uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all disabled:opacity-40"
+                        >
+                          {deletingAssessmentId === a.id ? '...' : 'Delete'}
                         </button>
                       </div>
                     ))}
